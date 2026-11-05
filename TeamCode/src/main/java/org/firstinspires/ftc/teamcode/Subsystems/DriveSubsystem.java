@@ -74,6 +74,22 @@ public class DriveSubsystem {
     }
 
 
+    public void setInitialPose(
+            double x,
+            double y,
+            double headingDegrees
+    ) {
+        follower.setPose(
+                new Pose(
+                        x,
+                        y,
+                        Math.toRadians(headingDegrees)
+                )
+        );
+    }
+
+
+
     // =====================================================
     // X
     // =====================================================
