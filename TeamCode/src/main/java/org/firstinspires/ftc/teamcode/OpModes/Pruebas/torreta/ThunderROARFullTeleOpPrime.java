@@ -14,11 +14,11 @@ import org.firstinspires.ftc.teamcode.Commands.turret.TurretVisionV4;
 import org.firstinspires.ftc.teamcode.Subsystems.DriveSubsystem;
 import org.firstinspires.ftc.teamcode.Subsystems.TurretSubsystemV3;
 
-@TeleOp(name = "ThunderROAR PRIME V9 - FULL prubeaaaaaaaaa")
+@TeleOp(name = "ThunderROAR PRIME V9 - FULL")
 public class ThunderROARFullTeleOpPrime extends OpMode {
 
     // =====================================================
-    // CONFIGURACION
+    // HARDWARE
     // =====================================================
 
     private static final String SHOOTER_NAME = "shoot";
@@ -27,15 +27,12 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
     private static final String GATE_NAME = "gate";
     private static final String HOOD_NAME = "hood";
 
-    // Verificar nombres en Robot Configuration.
+    // Verificar en Robot Configuration
     private static final String COLOR_BOTTOM_NAME = "colorBottom";
     private static final String COLOR_TOP_NAME = "colorTop";
 
+    // Distancia horizontal inicial medida
     private static final double TAG_DISTANCE_IN = 56.0;
-
-    // Margen provisional: verificar recorrido fisico.
-    private static final double SAFE_MIN = -100.0;
-    private static final double SAFE_MAX = 220.0;
 
     private static final double HOME_ANGLE = 0.0;
     private static final double HOME_TOLERANCE = 1.0;
@@ -43,14 +40,14 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
     private static final double TURRET_POWER = 0.60;
 
     // =====================================================
-    // CHASIS
+    // DRIVE
     // =====================================================
 
     private DriveSubsystem drive;
     private MecanumDriveCmd driveCommand;
 
     // =====================================================
-    // TORRETA V9
+    // TURRET V9
     // =====================================================
 
     private TurretSubsystemV3 turret;
@@ -70,7 +67,6 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
     private DcMotorEx shooter;
 
     private boolean shooterEnabled = false;
-
     private double targetVelocity = 1100.0;
 
     private double p = 8.0;
@@ -104,7 +100,7 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
     private boolean gateOpen = false;
 
     // =====================================================
-    // CAPUCHA - SERVO POSICIONAL
+    // HOOD - 5 POSICIONES
     // =====================================================
 
     private Servo hood;
@@ -129,7 +125,7 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
     private boolean hoodCommanded = false;
 
     // =====================================================
-    // SENSORES
+    // COLOR SENSORS
     // =====================================================
 
     private ColorSensor colorBottom;
@@ -139,7 +135,6 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
     private static final int TOP_THRESHOLD = 300;
 
     private static final int MAX_BALLS = 4;
-
     private int ballCount = 0;
 
     private boolean bottomDetected = false;
@@ -151,13 +146,14 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
     private int bottomAlpha = 0;
     private int topAlpha = 0;
 
-    private static final long DEBOUNCE_NS = 150_000_000L;
+    private static final long DEBOUNCE_NS =
+            150_000_000L;
 
     private long lastBottomCount = 0;
     private long lastTopCount = 0;
 
     // =====================================================
-    // BOTONES ANTERIORES
+    // BUTTON MEMORY
     // =====================================================
 
     private boolean lastA1 = false;
@@ -184,11 +180,10 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
     @Override
     public void init() {
 
-        // ---------------- CHASIS ----------------
-
+        // DRIVE
         drive = new DriveSubsystem(hardwareMap);
 
-        // Strafe y giro corregidos respecto al V9.
+        // Strafe y giro corregidos
         driveCommand = new MecanumDriveCmd(
                 drive,
                 () -> -gamepad1.left_stick_y,
@@ -198,10 +193,8 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
 
         drive.setInitialPose(0, 0, 0);
 
-        // ---------------- TORRETA ----------------
-
+        // TURRET
         turret = new TurretSubsystemV3(hardwareMap);
-
         turret.setMaxPower(TURRET_POWER);
 
         vision = new TurretVisionV4(hardwareMap);
@@ -212,16 +205,13 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
                 vision
         );
 
-        // ---------------- SHOOTER ----------------
-
+        // SHOOTER
         shooter = hardwareMap.get(
                 DcMotorEx.class,
                 SHOOTER_NAME
         );
 
-        shooter.setDirection(
-                DcMotor.Direction.FORWARD
-        );
+        shooter.setDirection(DcMotor.Direction.FORWARD);
 
         shooter.setZeroPowerBehavior(
                 DcMotor.ZeroPowerBehavior.FLOAT
@@ -232,11 +222,9 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
         );
 
         shooter.setPower(0);
-
         applyPIDF();
 
-        // ---------------- INTAKE ----------------
-
+        // INTAKE
         intake = hardwareMap.get(
                 DcMotor.class,
                 INTAKE_NAME
@@ -247,13 +235,8 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
                 INDEXER_NAME
         );
 
-        intake.setDirection(
-                DcMotor.Direction.FORWARD
-        );
-
-        indexer.setDirection(
-                DcMotor.Direction.REVERSE
-        );
+        intake.setDirection(DcMotor.Direction.FORWARD);
+        indexer.setDirection(DcMotor.Direction.REVERSE);
 
         intake.setZeroPowerBehavior(
                 DcMotor.ZeroPowerBehavior.BRAKE
@@ -266,8 +249,7 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
         intake.setPower(0);
         indexer.setPower(0);
 
-        // ---------------- GATE ----------------
-
+        // GATE
         gate = hardwareMap.tryGet(
                 Servo.class,
                 GATE_NAME
@@ -275,11 +257,9 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
 
         if (gate != null) {
             gate.setDirection(Servo.Direction.REVERSE);
-            // No mover gate durante INIT.
         }
 
-        // ---------------- CAPUCHA ----------------
-
+        // HOOD
         hood = hardwareMap.tryGet(
                 Servo.class,
                 HOOD_NAME
@@ -287,11 +267,9 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
 
         if (hood != null) {
             hood.setDirection(Servo.Direction.FORWARD);
-            // No mover hood durante INIT.
         }
 
-        // ---------------- SENSORES ----------------
-
+        // COLOR SENSORS
         colorBottom = hardwareMap.tryGet(
                 ColorSensor.class,
                 COLOR_BOTTOM_NAME
@@ -304,14 +282,19 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
 
         telemetry.addLine("THUNDERROAR PRIME V9 READY");
         telemetry.addLine("G1 A Shooter | B Tracking");
-        telemetry.addLine("G1 Y Auto Intake | X Disparar");
-        telemetry.addLine("G1 DPAD UP/DOWN Capucha");
+        telemetry.addLine("G1 Y Auto Intake | Hold X Feed");
+        telemetry.addLine("G1 DPAD UP/DOWN Hood");
+        telemetry.addLine("G1 RT/LT Shooter Velocity");
         telemetry.addLine("G2 A Vision | Y Acquire Tag");
-        telemetry.addLine("G2 BACK Home | START Reset");
+        telemetry.addLine("G2 X/B Manual Intake");
+        telemetry.addLine("G2 DPAD Shooter PIDF");
+        telemetry.addLine("G2 BACK Home | START Fault Reset");
+
         telemetry.addData("Gate", gate != null);
         telemetry.addData("Hood", hood != null);
         telemetry.addData("Color Bottom", colorBottom != null);
         telemetry.addData("Color Top", colorTop != null);
+
         telemetry.update();
     }
 
@@ -334,7 +317,7 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
         long now = System.nanoTime();
 
         // =================================================
-        // 1. CHASIS
+        // 1. DRIVE
         // =================================================
 
         driveCommand.execute();
@@ -347,7 +330,7 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
         vision.update();
 
         // =================================================
-        // 3. SHOOTER - G1 A
+        // 3. SHOOTER TOGGLE - G1 A
         // =================================================
 
         if (gamepad1.a && !lastA1) {
@@ -357,7 +340,7 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
         lastA1 = gamepad1.a;
 
         // =================================================
-        // 4. TRACKING - G1 B
+        // 4. TRACKING TOGGLE - G1 B
         // =================================================
 
         if (gamepad1.b && !lastB1) {
@@ -370,11 +353,12 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
 
             } else if (!returningHome
                     && !turret.isStalled()
-                    && turret.getAngle() > SAFE_MIN
-                    && turret.getAngle() < SAFE_MAX) {
+                    && turret.getAngle()
+                    > TurretAimingV9.SAFE_MIN
+                    && turret.getAngle()
+                    < TurretAimingV9.SAFE_MAX) {
 
                 aiming.enable();
-
                 trackingEnabled = aiming.isEnabled();
 
                 if (trackingEnabled) {
@@ -396,7 +380,7 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
         lastY1 = gamepad1.y;
 
         // =================================================
-        // 6. CAPUCHA - G1 DPAD
+        // 6. HOOD - G1 DPAD
         // =================================================
 
         if (gamepad1.dpad_up && !lastHoodUp) {
@@ -417,7 +401,6 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
         if (gamepad2.a && !lastVisionA) {
 
             visionEnabled = !visionEnabled;
-
             aiming.setVisionEnabled(visionEnabled);
         }
 
@@ -466,8 +449,10 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
             returningHome = false;
 
             if (!turret.isStalled()
-                    && turret.getAngle() >= SAFE_MIN
-                    && turret.getAngle() <= SAFE_MAX) {
+                    && turret.getAngle()
+                    >= TurretAimingV9.SAFE_MIN
+                    && turret.getAngle()
+                    <= TurretAimingV9.SAFE_MAX) {
 
                 turret.enable();
                 turret.setTarget(HOME_ANGLE);
@@ -479,7 +464,6 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
                         : "HOME_DISABLED";
 
             } else {
-
                 turretStatus = "HOME_BLOCKED";
             }
         }
@@ -618,23 +602,13 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
         indexer.setPower(indexerPower);
 
         // =================================================
-        // 16. TORRETA V9 + LIMITES
+        // 16. TURRET V9 - RECUPERACION DE LIMITES
         // =================================================
-
-        double actualAngle = turret.getAngle();
-
-        if (trackingEnabled
-                && (actualAngle <= SAFE_MIN
-                || actualAngle >= SAFE_MAX)) {
-
-            aiming.disable();
-            trackingEnabled = false;
-
-            turretStatus = "ANGLE_LIMIT";
-        }
 
         if (trackingEnabled) {
 
+            // V9 gestiona sus propios limites.
+            // No apagar tracking solamente por alcanzarlos.
             aiming.update();
 
             if (!aiming.isEnabled()) {
@@ -643,20 +617,15 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
 
                 turretStatus = turret.isStalled()
                         ? "TURRET_FAULT"
-                        : "TRACKING_STOPPED";
+                        : aiming.getStatus();
+
+            } else if (aiming.isAtLimit()) {
+
+                turretStatus = "LIMIT_WAITING_FOR_RECOVERY";
 
             } else {
 
-                double desired = aiming.getDesiredAngle();
-
-                if (desired <= SAFE_MIN
-                        || desired >= SAFE_MAX) {
-
-                    aiming.disable();
-                    trackingEnabled = false;
-
-                    turretStatus = "TARGET_OUT_OF_RANGE";
-                }
+                turretStatus = "TRACKING_NORMAL";
             }
 
         } else if (returningHome) {
@@ -672,8 +641,9 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
                 turret.setTarget(HOME_ANGLE);
                 turret.update();
 
-                if (Math.abs(turret.getAngle() - HOME_ANGLE)
-                        <= HOME_TOLERANCE) {
+                if (Math.abs(
+                        turret.getAngle() - HOME_ANGLE
+                ) <= HOME_TOLERANCE) {
 
                     turret.disable();
                     returningHome = false;
@@ -688,42 +658,34 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
         }
 
         // =================================================
-        // 17. TELEMETRIA
+        // 17. TELEMETRY
         // =================================================
 
         telemetry.addLine("===== THUNDERROAR PRIME V9 =====");
 
         telemetry.addData(
-                "Robot X",
-                "%.2f",
-                drive.getX()
+                "Robot X", "%.2f", drive.getX()
         );
 
         telemetry.addData(
-                "Robot Y",
-                "%.2f",
-                drive.getY()
+                "Robot Y", "%.2f", drive.getY()
         );
 
         telemetry.addData(
-                "Heading",
-                "%.2f",
-                drive.getHeadingDegrees()
+                "Heading", "%.2f", drive.getHeadingDegrees()
         );
 
-        // ---------------- TORRETA ----------------
-
-        telemetry.addLine("===== TORRETA =====");
+        // TURRET
+        telemetry.addLine("===== TURRET =====");
 
         telemetry.addData("Tracking", trackingEnabled);
         telemetry.addData("Vision", visionEnabled);
         telemetry.addData("Locked", aiming.hasLock());
         telemetry.addData("Status", aiming.getStatus());
+        telemetry.addData("At Limit", aiming.isAtLimit());
 
         telemetry.addData(
-                "Actual Angle",
-                "%.2f",
-                turret.getAngle()
+                "Actual Angle", "%.2f", turret.getAngle()
         );
 
         telemetry.addData(
@@ -752,50 +714,31 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
         );
 
         telemetry.addData(
-                "Turret Power",
-                "%.2f",
-                turret.getPower()
+                "Turret Power", "%.2f", turret.getPower()
         );
 
         telemetry.addData(
-                "Turret Fault",
-                turret.getFaultReason()
+                "Turret Fault", turret.getFaultReason()
         );
 
-        telemetry.addData(
-                "Turret Safety",
-                turretStatus
-        );
+        telemetry.addData("Turret Safety", turretStatus);
+        telemetry.addData("Returning Home", returningHome);
 
-        telemetry.addData(
-                "Returning Home",
-                returningHome
-        );
-
-        // ---------------- LIMELIGHT ----------------
-
+        // LIMELIGHT
         telemetry.addLine("===== LIMELIGHT TAG 36 =====");
 
+        telemetry.addData("Tag Visible", vision.hasTarget());
+
         telemetry.addData(
-                "Tag Visible",
-                vision.hasTarget()
+                "Tx", "%.2f", vision.getTx()
         );
 
         telemetry.addData(
-                "Tx",
-                "%.2f",
-                vision.getTx()
+                "Ty", "%.2f", vision.getTy()
         );
 
         telemetry.addData(
-                "Ty",
-                "%.2f",
-                vision.getTy()
-        );
-
-        telemetry.addData(
-                "Frame Age (ms)",
-                vision.getAgeMs()
+                "Frame Age (ms)", vision.getAgeMs()
         );
 
         telemetry.addData(
@@ -810,13 +753,13 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
                 && Double.isFinite(distanceIn)) {
 
             telemetry.addData(
-                    "Distance (in)",
+                    "Estimated Distance (in)",
                     "%.2f",
                     distanceIn
             );
 
             telemetry.addData(
-                    "Distance (cm)",
+                    "Estimated Distance (cm)",
                     "%.2f",
                     distanceIn * 2.54
             );
@@ -824,19 +767,14 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
         } else {
 
             telemetry.addData(
-                    "Distance",
-                    "NO LOCK"
+                    "Estimated Distance", "NO LOCK"
             );
         }
 
-        // ---------------- SHOOTER ----------------
-
+        // SHOOTER
         telemetry.addLine("===== SHOOTER =====");
 
-        telemetry.addData(
-                "Shooter",
-                shooterEnabled
-        );
+        telemetry.addData("Shooter", shooterEnabled);
 
         telemetry.addData(
                 "Target Velocity",
@@ -856,70 +794,31 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
                 p, i, d, f
         );
 
-        // ---------------- INTAKE ----------------
-
+        // INTAKE
         telemetry.addLine("===== INTAKE =====");
 
+        telemetry.addData("Auto Intake", autoIntakeEnabled);
+        telemetry.addData("Ball Count", ballCount);
+        telemetry.addData("Bottom Alpha", bottomAlpha);
+        telemetry.addData("Top Alpha", topAlpha);
+        telemetry.addData("Bottom Detected", bottomDetected);
+        telemetry.addData("Top Detected", topDetected);
+
         telemetry.addData(
-                "Auto Intake",
-                autoIntakeEnabled
+                "Intake Power", "%.2f", intakePower
         );
 
         telemetry.addData(
-                "Ball Count",
-                ballCount
+                "Indexer Power", "%.2f", indexerPower
         );
 
-        telemetry.addData(
-                "Bottom Alpha",
-                bottomAlpha
-        );
+        telemetry.addData("Gate Open", gateOpen);
 
-        telemetry.addData(
-                "Top Alpha",
-                topAlpha
-        );
+        // HOOD
+        telemetry.addLine("===== HOOD =====");
 
-        telemetry.addData(
-                "Bottom Detected",
-                bottomDetected
-        );
-
-        telemetry.addData(
-                "Top Detected",
-                topDetected
-        );
-
-        telemetry.addData(
-                "Intake Power",
-                "%.2f",
-                intakePower
-        );
-
-        telemetry.addData(
-                "Indexer Power",
-                "%.2f",
-                indexerPower
-        );
-
-        telemetry.addData(
-                "Gate Open",
-                gateOpen
-        );
-
-        // ---------------- CAPUCHA ----------------
-
-        telemetry.addLine("===== CAPUCHA =====");
-
-        telemetry.addData(
-                "Hood Connected",
-                hood != null
-        );
-
-        telemetry.addData(
-                "Hood Preset",
-                HOOD_NAMES[hoodIndex]
-        );
+        telemetry.addData("Hood Connected", hood != null);
+        telemetry.addData("Hood Preset", HOOD_NAMES[hoodIndex]);
 
         telemetry.addData(
                 "Hood Position",
@@ -927,16 +826,13 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
                 HOOD_POSITIONS[hoodIndex]
         );
 
-        telemetry.addData(
-                "Hood Commanded",
-                hoodCommanded
-        );
+        telemetry.addData("Hood Commanded", hoodCommanded);
 
         telemetry.update();
     }
 
     // =====================================================
-    // CAPUCHA - CINCO POSICIONES
+    // HOOD
     // =====================================================
 
     private void setHoodIndex(int index) {
@@ -975,7 +871,7 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
     }
 
     // =====================================================
-    // SENSORES DE COLOR
+    // COLOR SENSORS
     // =====================================================
 
     private void updateBallSensors(long now) {
@@ -1002,7 +898,7 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
                     topAlpha >= TOP_THRESHOLD;
         }
 
-        // Entrada de pelota.
+        // Conteo de entrada
         if (autoIntakeEnabled
                 && colorBottom != null
                 && bottomDetected
@@ -1017,7 +913,7 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
             lastBottomCount = now;
         }
 
-        // Salida de pelota al disparar.
+        // Conteo de salida
         if (gamepad1.x
                 && colorTop != null
                 && previousTopDetected
@@ -1037,7 +933,7 @@ public class ThunderROARFullTeleOpPrime extends OpMode {
     }
 
     // =====================================================
-    // PIDF SHOOTER
+    // SHOOTER PIDF
     // =====================================================
 
     private void applyPIDF() {

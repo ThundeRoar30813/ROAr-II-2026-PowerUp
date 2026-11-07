@@ -1,22 +1,18 @@
 package org.firstinspires.ftc.teamcode.Commands.turret;
 
 import com.qualcomm.robotcore.util.Range;
+
 import org.firstinspires.ftc.teamcode.Subsystems.DriveSubsystem;
 import org.firstinspires.ftc.teamcode.Subsystems.TurretSubsystemV3;
 
-/**
- * V9 experimental: local AprilTag acquisition, Pinpoint geometric prediction,
- * and speed-adaptive Limelight correction. Camera rotates with turret.
- * Assumes turret rotation axis coincides with the Pedro pose origin.
- * Target estimate assumes a fixed tag and a MEASURED horizontal distance.
- */
 public class TurretAimingV9 {
+
     private final DriveSubsystem drive;
     private final TurretSubsystemV3 turret;
     private final TurretVisionV4 vision;
 
-    // Signs copied from working V8. DO NOT change without low-power validation.
-    public static double HEADING_SIGN = +1.0;
+    // Signos del V9 que funcionaba
+    public static double HEADING_SIGN = 1.0;
     public static double VISION_SIGN = -1.0;
     public static double BEARING_SIGN = -1.0;
 
@@ -26,16 +22,15 @@ public class TurretAimingV9 {
     public static double MAX_ACCEPTABLE_TX = 25.0;
     public static double MAX_STEP_DEG = 25.0;
 
-    // Vision: quieter at rest, more responsive while translating.
     public static double KP_STILL = 1.5;
     public static double KP_MOVING = 7.0;
+
     public static double TX_DEADBAND_STILL = 1.2;
     public static double TX_DEADBAND_MOVING = 0.45;
     public static double TX_FILTER_ALPHA = 0.65;
     public static double MOVE_THRESHOLD_IN_S = 2.0;
     public static double VISION_RATE_SMOOTH = 0.40;
 
-    // Pose prediction, not projectile lead.
     public static double PREDICT_SECONDS = 0.14;
     public static double MAX_PREDICT_SECONDS = 0.16;
     public static double VELOCITY_FILTER_ALPHA = 0.70;
@@ -44,45 +39,89 @@ public class TurretAimingV9 {
     public static double MIN_LOCK_DISTANCE_IN = 12.0;
     public static double MAX_LOCK_DISTANCE_IN = 180.0;
 
-    private boolean enabled, visionEnabled, locked;
-    private double targetX, targetY;
-    private double referenceHeading, referenceTurret, referenceBearing;
-    private double lastHeading, lastX, lastY;
-    private double vx, vy, speed;
-    private double desiredAngle, commandedAngle, visionOffset;
-    private double filteredTx, visionRate, predictionDegrees;
-    private boolean txInitialized;
+    // Limites provisionales de seguridad
+    public static double SAFE_MIN = -100.0;
+    public static double SAFE_MAX = 220.0;
+
+    private boolean enabled = false;
+    private boolean visionEnabled = false;
+    private boolean locked = false;
+    private boolean atLimit = false;
+
+    private double targetX;
+    private double targetY;
+
+    private double referenceHeading;
+    private double referenceTurret;
+    private double referenceBearing;
+
+    private double lastHeading;
+    private double lastX;
+    private double lastY;
+
+    private double vx;
+    private double vy;
+    private double speed;
+
+    private double desiredAngle;
+    private double commandedAngle;
+    private double visionOffset;
+
+    private double filteredTx;
+    private double visionRate;
+    private double predictionDegrees;
+
+    private boolean txInitialized = false;
     private long lastTime;
+
     private String status = "OFF";
 
     public TurretAimingV9(
             DriveSubsystem drive,
             TurretSubsystemV3 turret,
             TurretVisionV4 vision) {
+
         this.drive = drive;
         this.turret = turret;
         this.vision = vision;
     }
 
     public void enable() {
-        if (turret.isStalled()) return;
+
+        if (turret.isStalled()) {
+            status = "TURRET_FAULT";
+            return;
+        }
 
         referenceHeading = drive.getHeadingDegrees();
         lastHeading = referenceHeading;
+
         referenceTurret = turret.getAngle();
+
         lastX = drive.getX();
         lastY = drive.getY();
 
-        vx = vy = speed = predictionDegrees = 0;
-        desiredAngle = commandedAngle = referenceTurret;
-        visionOffset = filteredTx = visionRate = 0;
+        vx = 0;
+        vy = 0;
+        speed = 0;
+        predictionDegrees = 0;
+
+        desiredAngle = referenceTurret;
+        commandedAngle = referenceTurret;
+
+        visionOffset = 0;
+        filteredTx = 0;
+        visionRate = 0;
+
         txInitialized = false;
         locked = false;
+        atLimit = false;
 
         lastTime = System.nanoTime();
 
         turret.enable();
         turret.setTarget(referenceTurret);
+
         enabled = turret.isEnabled();
 
         status = enabled
@@ -91,36 +130,44 @@ public class TurretAimingV9 {
     }
 
     public void disable() {
+
         enabled = false;
         locked = false;
+        atLimit = false;
+
         turret.disable();
         status = "OFF";
     }
 
     public void setVisionEnabled(boolean value) {
+
         visionEnabled = value;
         txInitialized = false;
         visionRate = 0;
     }
 
-    /** Press gamepad2 Y when tag 36 is visible and distance is measured. */
     public boolean acquireTarget(double distanceInches) {
-        if (!enabled || !visionEnabled || !vision.hasTarget()
+
+        if (!enabled
+                || !visionEnabled
+                || !vision.hasTarget()
                 || !Double.isFinite(distanceInches)
                 || distanceInches < MIN_LOCK_DISTANCE_IN
                 || distanceInches > MAX_LOCK_DISTANCE_IN
                 || !Double.isFinite(vision.getTx())
-                || Math.abs(vision.getTx()) > MAX_ACCEPTABLE_TX) {
+                || Math.abs(vision.getTx())
+                > MAX_ACCEPTABLE_TX) {
 
-            status = "ACQUIRE_NEEDS_TAG_AND_MEASURED_DISTANCE";
+            status = "ACQUIRE_NEEDS_TAG_AND_DISTANCE";
             return false;
         }
 
-        double cameraBearingDeg = drive.getHeadingDegrees()
-                - HEADING_SIGN * (
-                turret.getAngle()
-                        + VISION_SIGN * vision.getTx()
-        );
+        double cameraBearingDeg =
+                drive.getHeadingDegrees()
+                        - HEADING_SIGN * (
+                        turret.getAngle()
+                                + VISION_SIGN * vision.getTx()
+                );
 
         double radians = Math.toRadians(cameraBearingDeg);
 
@@ -143,28 +190,41 @@ public class TurretAimingV9 {
         lastX = drive.getX();
         lastY = drive.getY();
 
-        vx = vy = speed = predictionDegrees = 0;
-        visionOffset = visionRate = 0;
+        vx = 0;
+        vy = 0;
+        speed = 0;
+
+        predictionDegrees = 0;
+        visionOffset = 0;
+        visionRate = 0;
+
         txInitialized = false;
         locked = true;
+        atLimit = false;
+
         status = "LOCKED_ESTIMATED_TAG_36";
 
         return true;
     }
 
     public void update() {
+
         if (!enabled) return;
 
         if (!turret.isEnabled() || turret.isStalled()) {
             disable();
+            status = "TURRET_FAULT_OR_DISABLED";
             return;
         }
 
         long now = System.nanoTime();
+
         double dt = (now - lastTime) * 1e-9;
         lastTime = now;
 
-        if (!Double.isFinite(dt) || dt <= 0 || dt > 0.12) {
+        if (!Double.isFinite(dt)
+                || dt <= 0
+                || dt > 0.12) {
             dt = 0.02;
         }
 
@@ -181,7 +241,10 @@ public class TurretAimingV9 {
             return;
         }
 
-        double headingStep = wrap(heading - lastHeading);
+        double headingStep = wrap(
+                heading - lastHeading
+        );
+
         lastHeading = heading;
 
         if (Math.abs(headingStep) > MAX_STEP_DEG) {
@@ -190,7 +253,7 @@ public class TurretAimingV9 {
             return;
         }
 
-        // Estimate translational velocity using consecutive Pedro poses.
+        // Velocidad del robot
         double rawVx = (x - lastX) / dt;
         double rawVy = (y - lastY) / dt;
 
@@ -207,7 +270,9 @@ public class TurretAimingV9 {
         vy += VELOCITY_FILTER_ALPHA * (rawVy - vy);
 
         speed = Math.hypot(vx, vy);
-        boolean moving = speed >= MOVE_THRESHOLD_IN_S;
+
+        boolean moving =
+                speed >= MOVE_THRESHOLD_IN_S;
 
         double headingDelta = wrap(
                 heading - referenceHeading
@@ -217,6 +282,7 @@ public class TurretAimingV9 {
         predictionDegrees = 0;
 
         if (locked) {
+
             double dx = targetX - x;
             double dy = targetY - y;
 
@@ -258,11 +324,12 @@ public class TurretAimingV9 {
             );
         }
 
-        // Vision is residual correction, not a second motor controller.
+        // Correccion Limelight original V9
         if (visionEnabled
                 && vision.hasTarget()
                 && Double.isFinite(vision.getTx())
-                && Math.abs(vision.getTx()) <= MAX_ACCEPTABLE_TX) {
+                && Math.abs(vision.getTx())
+                <= MAX_ACCEPTABLE_TX) {
 
             double tx = vision.getTx();
 
@@ -282,9 +349,10 @@ public class TurretAimingV9 {
                     ? KP_MOVING
                     : KP_STILL;
 
-            double error = Math.abs(filteredTx) <= deadband
-                    ? 0
-                    : filteredTx;
+            double error =
+                    Math.abs(filteredTx) <= deadband
+                            ? 0
+                            : filteredTx;
 
             double requestedRate = Range.clip(
                     VISION_SIGN * kp * error,
@@ -306,20 +374,87 @@ public class TurretAimingV9 {
             visionRate = 0;
         }
 
-        desiredAngle = referenceTurret
-                + HEADING_SIGN * headingDelta
-                + BEARING_SIGN * (
-                bearingDelta + predictionDegrees
-        )
-                + visionOffset;
+        // Objetivo geometrico original
+        double rawDesired =
+                referenceTurret
+                        + HEADING_SIGN * headingDelta
+                        + BEARING_SIGN * (
+                        bearingDelta + predictionDegrees
+                )
+                        + visionOffset;
 
-        if (!Double.isFinite(desiredAngle)
-                || desiredAngle < TurretSubsystemV3.MIN_ANGLE
-                || desiredAngle > TurretSubsystemV3.MAX_ANGLE) {
-
+        if (!Double.isFinite(rawDesired)) {
             disable();
-            status = "SOFTWARE_ANGLE_LIMIT";
+            status = "INVALID_TARGET";
             return;
+        }
+
+        // =================================================
+        // RECUPERACION SEGURA DE LIMITES
+        // =================================================
+
+        double minAngle = Math.max(
+                SAFE_MIN,
+                TurretSubsystemV3.MIN_ANGLE
+        );
+
+        double maxAngle = Math.min(
+                SAFE_MAX,
+                TurretSubsystemV3.MAX_ANGLE
+        );
+
+        if (minAngle >= maxAngle) {
+            disable();
+            status = "INVALID_LIMITS";
+            return;
+        }
+
+        // Busca angulos equivalentes dentro del recorrido.
+        // Nunca reinicia el encoder.
+        double selected = Double.NaN;
+        double smallestMove = Double.POSITIVE_INFINITY;
+
+        for (int turns = -2; turns <= 2; turns++) {
+
+            double candidate =
+                    rawDesired + 360.0 * turns;
+
+            if (candidate < minAngle
+                    || candidate > maxAngle) {
+                continue;
+            }
+
+            double movement = Math.abs(
+                    candidate - turret.getAngle()
+            );
+
+            if (movement < smallestMove) {
+                smallestMove = movement;
+                selected = candidate;
+            }
+        }
+
+        if (Double.isFinite(selected)) {
+
+            desiredAngle = selected;
+            atLimit = false;
+
+            status = locked
+                    ? "TRACKING"
+                    : "WAITING_FOR_TAG_36";
+
+        } else {
+
+            // Mantiene seguimiento activo.
+            // Espera hasta que el objetivo sea alcanzable.
+            desiredAngle = Range.clip(
+                    rawDesired,
+                    minAngle,
+                    maxAngle
+            );
+
+            atLimit = true;
+            status = "LIMIT_WAITING_FOR_RECOVERY";
         }
 
         double maxStep = MAX_TARGET_RATE * dt;
@@ -328,6 +463,12 @@ public class TurretAimingV9 {
                 desiredAngle - commandedAngle,
                 -maxStep,
                 maxStep
+        );
+
+        commandedAngle = Range.clip(
+                commandedAngle,
+                minAngle,
+                maxAngle
         );
 
         turret.setTarget(commandedAngle);
@@ -340,8 +481,10 @@ public class TurretAimingV9 {
     }
 
     private static double wrap(double degrees) {
+
         while (degrees > 180) degrees -= 360;
         while (degrees < -180) degrees += 360;
+
         return degrees;
     }
 
@@ -355,6 +498,10 @@ public class TurretAimingV9 {
 
     public boolean hasLock() {
         return locked;
+    }
+
+    public boolean isAtLimit() {
+        return atLimit;
     }
 
     public String getStatus() {
@@ -406,6 +553,7 @@ public class TurretAimingV9 {
     }
 
     public double getDistance() {
+
         return locked
                 ? Math.hypot(
                 targetX - drive.getX(),
