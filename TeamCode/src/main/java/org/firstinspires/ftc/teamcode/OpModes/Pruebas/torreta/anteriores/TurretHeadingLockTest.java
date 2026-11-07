@@ -8,7 +8,7 @@ import org.firstinspires.ftc.teamcode.Commands.drive.MecanumDriveCmd;
 import org.firstinspires.ftc.teamcode.Commands.TurretHeadingCommand;
 import org.firstinspires.ftc.teamcode.Subsystems.DriveSubsystem;
 import org.firstinspires.ftc.teamcode.Subsystems.TurretSubsystem;
-@Disabled
+
 @TeleOp(name = "TEST - Turret Heading Lock")
 public class TurretHeadingLockTest extends OpMode {
 

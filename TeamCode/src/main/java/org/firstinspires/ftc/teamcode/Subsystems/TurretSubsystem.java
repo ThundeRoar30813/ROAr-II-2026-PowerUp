@@ -8,73 +8,66 @@ import com.qualcomm.robotcore.util.Range;
 
 public class TurretSubsystem {
 
-    // =========================================
-    // CONFIGURACION ENCODER
-    // =========================================
-
-    private static final double TICKS_PER_REV = 51940.0;
-
-    private static final double TICKS_PER_DEGREE =
-            TICKS_PER_REV / 360.0;
-
-    // =========================================
-    // PID ORIGINAL
-    // =========================================
-
-    private static final double kP = 0.025;
-    private static final double kI = 0.0007;
-    private static final double kD = 0.0007;
-
-    private static final double MAX_POWER = 0.80;
-    private static final double MIN_POWER = 0.12;
-
-    private static final double TOLERANCE_DEG = 1.0;
-
-    // =========================================
-    // LIMITES TORRETA
-    // =========================================
-
-    public static final double MIN_ANGLE_DEG = -120.0;
-    public static final double MAX_ANGLE_DEG = 125.0;
-
-    // =========================================
-    // HARDWARE
-    // =========================================
-
     private final DcMotorEx turretMotor;
     private final DcMotorEx turretEncoder;
 
+    // ENCODER
+    private static final double TICKS_PER_DEGREE = 51940.0 / 360.0;
+
+    // Mantener el mismo signo que funciono en tu PID Tuner
+    private static final double ENCODER_SIGN = 1.0;
+
+    // PID CALIBRADO
+    private static final double KP = 0.117;
+    private static final double KD = 0.0014;
+    private static final double KV = 0.0;
+    private static final double TOLERANCE_DEG = 1.0;
+
+    // LIMITES ANGULARES
+    public static final double MIN_ANGLE_DEG = -110.0;
+    public static final double MAX_ANGLE_DEG = 230.0;
+
+    // POTENCIA INICIAL DE PRUEBA
+    private double maxPower = 0.20;
+
     private int encoderZero;
 
-    // =========================================
-    // VARIABLES PID
-    // =========================================
+    private double targetAngleDeg;
+    private double targetVelocityDegPerSec;
 
-    private double targetAngleDeg = 0.0;
-
-    private double targetVelocityDegPerSec = 0.0;
-
-    private double integral = 0.0;
-    private double previousError = 0.0;
-
+    private double previousAngle;
+    private double filteredVelocity;
     private long previousTime;
 
-    private double motorPower = 0.0;
+    private double lastOutput;
+    private double lastPID;
+    private double lastFeedforward;
 
-    // =========================================
+    private boolean controlEnabled;
+    private boolean stalled;
+
+    private long stallStartNs;
+    private double stallStartAngle;
+
+    // PROTECCION SI NO SE DETECTA MOVIMIENTO
+    private static final double STALL_POWER_THRESHOLD = 0.15;
+    private static final double STALL_ERROR_THRESHOLD_DEG = 5.0;
+    private static final double STALL_MOVEMENT_DEG = 1.0;
+    private static final long STALL_TIMEOUT_NS = 500_000_000L;
+
+    // =====================================================
     // CONSTRUCTOR
-    // =========================================
+    // =====================================================
 
     public TurretSubsystem(HardwareMap hardwareMap) {
 
         turretMotor = hardwareMap.get(
-                DcMotorEx.class,
-                "turret"
+                DcMotorEx.class, "turret"
         );
 
+        // Encoder REV conectado al puerto de mfl
         turretEncoder = hardwareMap.get(
-                DcMotorEx.class,
-                "mfl"
+                DcMotorEx.class, "mfl"
         );
 
         turretMotor.setDirection(
@@ -91,101 +84,213 @@ public class TurretSubsystem {
 
         turretMotor.setPower(0);
 
+        // Cero inicial
         encoderZero = turretEncoder.getCurrentPosition();
 
-        previousTime = System.nanoTime();
+        targetAngleDeg = getCurrentAngleDeg();
+
+        resetControllerState();
     }
 
-    // =========================================
-    // UPDATE PID
-    // =========================================
+    // =====================================================
+    // REINICIAR ESTADO DEL CONTROLADOR
+    // =====================================================
+
+    private void resetControllerState() {
+
+        previousAngle = getCurrentAngleDeg();
+        filteredVelocity = 0;
+
+        previousTime = System.nanoTime();
+
+        lastOutput = 0;
+        lastPID = 0;
+        lastFeedforward = 0;
+
+        stallStartNs = 0;
+    }
+
+    // =====================================================
+    // ACTIVAR / DESACTIVAR
+    // =====================================================
+
+    public void enableControl() {
+
+        targetAngleDeg = getCurrentAngleDeg();
+        targetVelocityDegPerSec = 0;
+
+        stalled = false;
+
+        resetControllerState();
+
+        controlEnabled = true;
+    }
+
+    public void disableControl() {
+
+        controlEnabled = false;
+
+        turretMotor.setPower(0);
+
+        targetVelocityDegPerSec = 0;
+
+        resetControllerState();
+    }
+
+    public boolean isControlEnabled() {
+        return controlEnabled;
+    }
+
+    public boolean isStalled() {
+        return stalled;
+    }
+
+    // =====================================================
+    // POTENCIA
+    // =====================================================
+
+    public void setMaxPower(double power) {
+
+        if (Double.isFinite(power)) {
+            maxPower = Range.clip(power, 0, 0.90);
+        }
+    }
+
+    public double getMaxPower() {
+        return maxPower;
+    }
+
+    // =====================================================
+    // PID UPDATE
+    // =====================================================
 
     public void update() {
 
+        if (!controlEnabled) {
+
+            turretMotor.setPower(0);
+            lastOutput = 0;
+            return;
+        }
+
         double currentAngle = getCurrentAngleDeg();
 
-        double error = targetAngleDeg - currentAngle;
+        if (!Double.isFinite(currentAngle)
+                || !Double.isFinite(targetAngleDeg)) {
+
+            disableControl();
+            return;
+        }
 
         long now = System.nanoTime();
 
-        double dt = (now - previousTime) / 1e9;
+        double dt =
+                (now - previousTime) / 1_000_000_000.0;
 
         previousTime = now;
 
         if (dt <= 0 || dt > 0.1) {
             dt = 0.02;
+            filteredVelocity = 0;
         }
 
-        // INTEGRAL
-        integral += error * dt;
+        // VELOCIDAD REAL FILTRADA
+        double rawVelocity =
+                (currentAngle - previousAngle) / dt;
 
-        integral = Range.clip(
-                integral,
-                -100.0,
-                100.0
-        );
+        previousAngle = currentAngle;
 
-        // DERIVADA
-        double derivative =
-                (error - previousError) / dt;
+        filteredVelocity =
+                0.8 * filteredVelocity
+                        + 0.2 * rawVelocity;
 
-        // PID
-        double output =
-                kP * error
-                        + kI * integral
-                        + kD * derivative;
+        // ERROR
+        double error =
+                targetAngleDeg - currentAngle;
+
+        // PD CALIBRADO
+        double pid =
+                KP * error
+                        - KD * filteredVelocity;
+
+        double ff =
+                KV * targetVelocityDegPerSec;
+
+        double output = pid + ff;
 
         // TOLERANCIA
         if (Math.abs(error) <= TOLERANCE_DEG) {
-
-            output = 0.0;
-            integral = 0.0;
-
-        } else {
-
-            // POTENCIA MINIMA
-            if (Math.abs(output) < MIN_POWER) {
-
-                output = Math.copySign(
-                        MIN_POWER,
-                        output == 0.0 ? error : output
-                );
-            }
+            output = 0;
         }
 
         // LIMITAR POTENCIA
         output = Range.clip(
                 output,
-                -MAX_POWER,
-                MAX_POWER
+                -maxPower,
+                maxPower
         );
 
-        // =========================================
-        // PROTECCION DE LIMITES
-        // =========================================
+        // =================================================
+        // LIMITES: PERMITIR REGRESO
+        // =================================================
 
-        if (currentAngle <= MIN_ANGLE_DEG
-                && output < 0.0) {
+        if (currentAngle >= MAX_ANGLE_DEG) {
 
-            output = 0.0;
+            // No permitir aumentar mas el angulo
+            output = Math.min(output, 0);
         }
 
-        if (currentAngle >= MAX_ANGLE_DEG
-                && output > 0.0) {
+        if (currentAngle <= MIN_ANGLE_DEG) {
 
-            output = 0.0;
+            // No permitir disminuir mas el angulo
+            output = Math.max(output, 0);
         }
 
-        // MOVER MOTOR
+        // =================================================
+        // PROTECCION POR FALTA DE MOVIMIENTO
+        // =================================================
+
+        if (Math.abs(output) >= STALL_POWER_THRESHOLD
+                && Math.abs(error) >= STALL_ERROR_THRESHOLD_DEG) {
+
+            if (stallStartNs == 0) {
+
+                stallStartNs = now;
+                stallStartAngle = currentAngle;
+
+            } else if (
+                    Math.abs(currentAngle - stallStartAngle)
+                            >= STALL_MOVEMENT_DEG
+            ) {
+
+                stallStartNs = now;
+                stallStartAngle = currentAngle;
+
+            } else if (
+                    now - stallStartNs >= STALL_TIMEOUT_NS
+            ) {
+
+                stalled = true;
+                disableControl();
+                return;
+            }
+
+        } else {
+
+            stallStartNs = 0;
+        }
+
+        // ENVIAR POTENCIA
         turretMotor.setPower(output);
 
-        motorPower = output;
-        previousError = error;
+        lastPID = pid;
+        lastFeedforward = ff;
+        lastOutput = output;
     }
 
-    // =========================================
-    // OBJETIVO DE ANGULO
-    // =========================================
+    // =====================================================
+    // TARGET
+    // =====================================================
 
     public void setTargetAngleDeg(double angle) {
 
@@ -199,39 +304,29 @@ public class TurretSubsystem {
         }
     }
 
-    // =========================================
-    // COMPATIBILIDAD CON TRACKING
-    // =========================================
+    public void setTargetVelocityDegPerSec(double velocity) {
 
-    public void setTargetVelocityDegPerSec(
-            double velocity
-    ) {
-
-        if (Double.isFinite(velocity)) {
-            targetVelocityDegPerSec = velocity;
-        }
-
-        // Se almacena para telemetria.
-        // El PID original controla solo posicion.
+        targetVelocityDegPerSec =
+                Double.isFinite(velocity) ? velocity : 0;
     }
 
-    // =========================================
-    // LECTURA DE ANGULO
-    // =========================================
+    // =====================================================
+    // ENCODER
+    // =====================================================
 
     public double getCurrentAngleDeg() {
 
-        int relativeTicks =
-                turretEncoder.getCurrentPosition()
-                        - encoderZero;
-
-        // Convencion de la version antigua
-        return -(relativeTicks / TICKS_PER_DEGREE);
+        return ENCODER_SIGN *
+                (
+                        (turretEncoder.getCurrentPosition()
+                                - encoderZero)
+                                / TICKS_PER_DEGREE
+                );
     }
 
-    // =========================================
+    // =====================================================
     // GETTERS
-    // =========================================
+    // =====================================================
 
     public double getTargetAngleDeg() {
         return targetAngleDeg;
@@ -246,7 +341,19 @@ public class TurretSubsystem {
     }
 
     public double getMotorPower() {
-        return motorPower;
+        return lastOutput;
+    }
+
+    public double getPIDOutput() {
+        return lastPID;
+    }
+
+    public double getFeedforward() {
+        return lastFeedforward;
+    }
+
+    public double getVelocityDegPerSec() {
+        return filteredVelocity;
     }
 
     public int getRawTicks() {
@@ -254,46 +361,34 @@ public class TurretSubsystem {
     }
 
     public int getRelativeTicks() {
+
         return turretEncoder.getCurrentPosition()
                 - encoderZero;
     }
 
-    // =========================================
-    // REINICIAR CERO
-    // =========================================
+    // =====================================================
+    // RESET ZERO
+    // =====================================================
 
     public void resetZero() {
 
-        turretMotor.setPower(0);
+        // Solo usar con la torreta inmovil
+        // y en una posicion cero conocida
+
+        disableControl();
 
         encoderZero = turretEncoder.getCurrentPosition();
 
-        targetAngleDeg = 0.0;
-        targetVelocityDegPerSec = 0.0;
+        targetAngleDeg = 0;
 
-        integral = 0.0;
-        previousError = 0.0;
-
-        motorPower = 0.0;
-
-        previousTime = System.nanoTime();
+        resetControllerState();
     }
 
-    // =========================================
+    // =====================================================
     // STOP
-    // =========================================
+    // =====================================================
 
     public void stop() {
-
-        turretMotor.setPower(0);
-
-        targetVelocityDegPerSec = 0.0;
-
-        integral = 0.0;
-        previousError = 0.0;
-
-        motorPower = 0.0;
-
-        previousTime = System.nanoTime();
+        disableControl();
     }
 }

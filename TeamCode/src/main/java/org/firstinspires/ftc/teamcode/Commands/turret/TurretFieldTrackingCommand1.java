@@ -1,12 +1,11 @@
 package org.firstinspires.ftc.teamcode.Commands.turret;
 
 import org.firstinspires.ftc.teamcode.Subsystems.DriveSubsystem;
-import org.firstinspires.ftc.teamcode.Subsystems.TurretSubsystem;
+import org.firstinspires.ftc.teamcode.Subsystems.TurretSubsystemp;
 
-public class TurretFieldTrackingCommand {
-
+public class TurretFieldTrackingCommand1 {
     private final DriveSubsystem drive;
-    private final TurretSubsystem turret;
+    private final TurretSubsystemp turret;
 
     private double targetX;
     private double targetY;
@@ -33,9 +32,9 @@ public class TurretFieldTrackingCommand {
     // CONSTRUCTOR
     // =========================================================
 
-    public TurretFieldTrackingCommand(
+    public TurretFieldTrackingCommand1(
             DriveSubsystem drive,
-            TurretSubsystem turret,
+            TurretSubsystemp turret,
             double targetX,
             double targetY
     ) {

@@ -8,7 +8,7 @@ import org.firstinspires.ftc.teamcode.Commands.drive.MecanumDriveCmd;
 import org.firstinspires.ftc.teamcode.Commands.TurretFieldTrackingCommand;
 import org.firstinspires.ftc.teamcode.Subsystems.DriveSubsystem;
 import org.firstinspires.ftc.teamcode.Subsystems.TurretSubsystem;
-@Disabled
+
 @TeleOp(name = "TEST - Turret Field Tracking")
 public class TurretFieldTrackingTest extends OpMode {
 

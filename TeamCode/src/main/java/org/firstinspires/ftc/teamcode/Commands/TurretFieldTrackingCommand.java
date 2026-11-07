@@ -1,28 +1,42 @@
 
 package org.firstinspires.ftc.teamcode.Commands;
 
+import com.qualcomm.robotcore.util.Range;
+
 import org.firstinspires.ftc.teamcode.Subsystems.DriveSubsystem;
 import org.firstinspires.ftc.teamcode.Subsystems.TurretSubsystem;
 
 public class TurretFieldTrackingCommand {
 
+    // SUBSYSTEMS
     private final DriveSubsystem drive;
     private final TurretSubsystem turret;
 
+    // TARGET
     private double targetX;
     private double targetY;
 
-    private boolean enabled = false;
+    private boolean enabled;
 
-    private double turretFieldZeroDeg = 0.0;
-    private double distanceToTarget = 0.0;
-    private double desiredAngleDeg = 0.0;
+    // REFERENCIA ANGULAR
+    private double turretFieldZeroDeg;
 
-    // Versión base: sin Limelight ni feedforward.
-    private static final double MAX_TARGET_RATE = 500.0;
+    private double previousRawAngle;
+    private double unwrappedDesiredAngle;
+    private double previousDesiredAngle;
 
-    private double previousTarget;
     private long previousTime;
+
+    // TELEMETRIA
+    private double distanceToTarget;
+    private double fieldAngleDeg;
+
+    private static final double
+            MAX_TARGET_SPEED_DEG_PER_SEC = 500.0;
+
+    // =====================================================
+    // CONSTRUCTOR
+    // =====================================================
 
     public TurretFieldTrackingCommand(
             DriveSubsystem drive,
@@ -30,34 +44,68 @@ public class TurretFieldTrackingCommand {
             double targetX,
             double targetY
     ) {
+
         this.drive = drive;
         this.turret = turret;
+
         this.targetX = targetX;
         this.targetY = targetY;
     }
 
+    // =====================================================
+    // ENABLE
+    // =====================================================
+
     public void enable() {
 
-        double fieldAngle = calculateFieldAngle();
-        double robotHeading = drive.getHeadingDegrees();
+        double dx = targetX - drive.getX();
+        double dy = targetY - drive.getY();
 
-        // Conserva el ángulo físico actual como referencia.
-        turretFieldZeroDeg = normalize180(
-                robotHeading
-                        - fieldAngle
-                        - turret.getCurrentAngleDeg()
+        distanceToTarget = Math.hypot(dx, dy);
+
+        fieldAngleDeg =
+                Math.toDegrees(Math.atan2(dy, dx));
+
+        double heading = drive.getHeadingDegrees();
+
+        if (!Double.isFinite(distanceToTarget)
+                || distanceToTarget < 1e-6
+                || !Double.isFinite(fieldAngleDeg)
+                || !Double.isFinite(heading)) {
+
+            disable();
+            return;
+        }
+
+        // CONSERVAR ANGULO ACTUAL
+        double currentAngle =
+                turret.getCurrentAngleDeg();
+
+        turretFieldZeroDeg = normalizeDegrees(
+                heading
+                        - fieldAngleDeg
+                        - currentAngle
         );
 
-        previousTarget = turret.getCurrentAngleDeg();
+        turret.enableControl();
+
+        previousRawAngle = normalizeDegrees(
+                heading
+                        - fieldAngleDeg
+                        - turretFieldZeroDeg
+        );
+
+        unwrappedDesiredAngle = currentAngle;
+        previousDesiredAngle = currentAngle;
+
         previousTime = System.nanoTime();
 
         enabled = true;
     }
 
-    public void disable() {
-        enabled = false;
-        turret.stop();
-    }
+    // =====================================================
+    // EXECUTE
+    // =====================================================
 
     public void execute() {
 
@@ -65,90 +113,162 @@ public class TurretFieldTrackingCommand {
             return;
         }
 
-        double fieldAngle = calculateFieldAngle();
-        double robotHeading = drive.getHeadingDegrees();
+        if (!turret.isControlEnabled()) {
 
-        desiredAngleDeg = normalize180(
-                robotHeading
-                        - fieldAngle
+            disable();
+            return;
+        }
+
+        // POSICION RELATIVA AL OBJETIVO
+        double dx = targetX - drive.getX();
+        double dy = targetY - drive.getY();
+
+        distanceToTarget = Math.hypot(dx, dy);
+
+        fieldAngleDeg =
+                Math.toDegrees(Math.atan2(dy, dx));
+
+        double heading =
+                drive.getHeadingDegrees();
+
+        if (!Double.isFinite(distanceToTarget)
+                || distanceToTarget < 1e-6
+                || !Double.isFinite(fieldAngleDeg)
+                || !Double.isFinite(heading)) {
+
+            disable();
+            return;
+        }
+
+        // =================================================
+        // ANGULO DESEADO
+        // =================================================
+
+        double rawDesired = normalizeDegrees(
+                heading
+                        - fieldAngleDeg
                         - turretFieldZeroDeg
         );
 
-        // Evita ordenar vueltas completas fuera
-        // del recorrido permitido.
-        double commandedAngle = clamp(
-                desiredAngleDeg,
+        // EVITAR SALTOS ENTRE +180 Y -180
+        double angleChange = normalizeDegrees(
+                rawDesired - previousRawAngle
+        );
+
+        previousRawAngle = rawDesired;
+
+        // ANGULO CONTINUO
+        unwrappedDesiredAngle += angleChange;
+
+        // LIMITAR OBJETIVO A -110 / +230
+        double desired = Range.clip(
+                unwrappedDesiredAngle,
                 TurretSubsystem.MIN_ANGLE_DEG,
                 TurretSubsystem.MAX_ANGLE_DEG
         );
 
+        // =================================================
+        // TIEMPO
+        // =================================================
+
         long now = System.nanoTime();
 
-        double dt = (now - previousTime) / 1e9;
+        double dt =
+                (now - previousTime) / 1_000_000_000.0;
+
         previousTime = now;
 
         if (dt <= 0 || dt > 0.1) {
             dt = 0.02;
         }
 
-        double targetVelocity = clamp(
-                (commandedAngle - previousTarget) / dt,
-                -MAX_TARGET_RATE,
-                MAX_TARGET_RATE
+        // =================================================
+        // VELOCIDAD DEL TARGET
+        // =================================================
+
+        double velocity = Range.clip(
+                (desired - previousDesiredAngle) / dt,
+                -MAX_TARGET_SPEED_DEG_PER_SEC,
+                MAX_TARGET_SPEED_DEG_PER_SEC
         );
 
-        previousTarget = commandedAngle;
+        previousDesiredAngle = desired;
 
-        turret.setTargetAngleDeg(commandedAngle);
-        turret.setTargetVelocityDegPerSec(targetVelocity);
+        // =================================================
+        // ACTUALIZAR TORRETA
+        // =================================================
+
+        turret.setTargetAngleDeg(desired);
+
+        turret.setTargetVelocityDegPerSec(velocity);
+
         turret.update();
     }
 
-    private double calculateFieldAngle() {
+    // =====================================================
+    // DISABLE
+    // =====================================================
 
-        double dx = targetX - drive.getX();
-        double dy = targetY - drive.getY();
+    public void disable() {
 
-        distanceToTarget = Math.hypot(dx, dy);
-
-        return Math.toDegrees(Math.atan2(dy, dx));
+        enabled = false;
+        turret.disableControl();
     }
 
-    private static double normalize180(double angle) {
-
-        while (angle > 180.0) {
-            angle -= 360.0;
-        }
-
-        while (angle < -180.0) {
-            angle += 360.0;
-        }
-
-        return angle;
-    }
-
-    private static double clamp(
-            double value,
-            double minimum,
-            double maximum
-    ) {
-        return Math.max(minimum, Math.min(maximum, value));
-    }
-
-    public void setTarget(double x, double y) {
-        targetX = x;
-        targetY = y;
-    }
+    // =====================================================
+    // GETTERS
+    // =====================================================
 
     public boolean isEnabled() {
         return enabled;
+    }
+
+    public double getTargetX() {
+        return targetX;
+    }
+
+    public double getTargetY() {
+        return targetY;
     }
 
     public double getDistanceToTarget() {
         return distanceToTarget;
     }
 
-    public double getDesiredAngleDeg() {
-        return desiredAngleDeg;
+    public double getFieldAngleDeg() {
+        return fieldAngleDeg;
+    }
+
+    public double getUnwrappedDesiredAngle() {
+        return unwrappedDesiredAngle;
+    }
+
+    // =====================================================
+    // CAMBIAR TARGET
+    // =====================================================
+
+    public void setTarget(double x, double y) {
+
+        targetX = x;
+        targetY = y;
+
+        if (enabled) {
+            enable();
+        }
+    }
+
+    // =====================================================
+    // NORMALIZAR ANGULO
+    // =====================================================
+
+    private static double normalizeDegrees(double angle) {
+
+        angle = (angle + 180.0) % 360.0;
+
+        if (angle < 0) {
+            angle += 360.0;
+        }
+
+        return angle - 180.0;
     }
 }

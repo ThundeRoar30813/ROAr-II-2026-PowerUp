@@ -1,4 +1,3 @@
-
 package org.firstinspires.ftc.teamcode.Commands.turret;
 
 import com.qualcomm.hardware.limelightvision.Limelight3A;
@@ -10,85 +9,48 @@ import org.firstinspires.ftc.teamcode.Subsystems.TurretSubsystemp;
 
 public class HybridTurretTrackingCommand {
 
-    public enum TrackingMode {
-        DISABLED,
-        ODOMETRY,
-        VISION_STABLE,
-        VISION_VIBRATING,
-        LIMIT_REACHED
-    }
+    // CONFIGURACION INICIAL CONSERVADORA
+    private static final double MIN_ANGLE = -60.0;
+    private static final double MAX_ANGLE = 60.0;
 
+    private static final double MAX_VISION_CORRECTION = 3.0;
+    private static final double VISION_GAIN = 0.20;
+    private static final double VISION_ALPHA = 0.10;
+    private static final double MAX_VISION_RATE = 12.0;
 
-    private final TurretSafetyManager safety =
-            new TurretSafetyManager(
-                    -115.0,
-                    120.0,
-                    5.0
-            );
+    private static final double MAX_TX = 5.0;
+    private static final double MAX_TX_JUMP = 2.0;
+    private static final long MAX_STALENESS_MS = 120;
+    private static final double MAX_TARGET_SPEED = 180.0;
 
-
-    // ==========================================
-    // CONFIGURACION
-    // ==========================================
-
-    // Limites provisionales: verificar con el robot
-    private static final double MIN_TURRET_DEG = -115.0;
-    private static final double MAX_TURRET_DEG = 120.0;
-
-    private static final double MAX_TARGET_VELOCITY = 500.0;
-
-    private static final double MAX_RESULT_AGE_MS = 150.0;
-
-    // Limite de velocidad de correccion visual
-    private static final double MAX_VISION_RATE_DEG_S = 45.0;
-
-    // Cambiar solamente despues de comprobar el signo
+    // IMPORTANTE:
+    // +1 o -1 se calibra experimentalmente.
+    // Empezamos con la vision desactivada.
     private static final double VISION_SIGN = 1.0;
-
-    // ==========================================
-    // COMPONENTES
-    // ==========================================
 
     private final DriveSubsystem drive;
     private final TurretSubsystemp turret;
     private final Limelight3A limelight;
-
-    private final LimelightVisionFilter visionFilter =
-            new LimelightVisionFilter();
-
-    // ==========================================
-    // OBJETIVO
-    // ==========================================
 
     private double targetX;
     private double targetY;
     private int targetTagId;
 
     private boolean enabled = false;
+    private boolean visionEnabled = false;
 
-    // Offset de montaje / referencia de torreta
-    private double turretFieldZeroDeg = 0.0;
-
-    // Correccion visual aplicada gradualmente
-    private double appliedVisionCorrectionDeg = 0.0;
-
-    // Para feedforward
-    private double previousDesiredAngleDeg = 0.0;
-    private long previousTimeNs = 0;
-
-    // Para no procesar dos veces la misma imagen
-    private LLResult previousResult = null;
-
-    private TrackingMode mode = TrackingMode.DISABLED;
-
-    private double fieldAngleDeg = 0.0;
+    private double fieldOffsetDeg = 0.0;
+    private double visionCorrectionDeg = 0.0;
     private double desiredAngleDeg = 0.0;
-    private double distanceToTarget = 0.0;
-    private double targetVelocityDegPerSec = 0.0;
 
-    // ==========================================
-    // CONSTRUCTOR
-    // ==========================================
+    private double lastFrameTimestamp = Double.NaN;
+    private double lastTx = Double.NaN;
+
+    private long lastVisionMs = 0;
+    private long lastUpdateNs = 0;
+
+    private boolean tagVisible = false;
+    private boolean lastVisionAccepted = false;
 
     public HybridTurretTrackingCommand(
             DriveSubsystem drive,
@@ -96,8 +58,8 @@ public class HybridTurretTrackingCommand {
             Limelight3A limelight,
             double targetX,
             double targetY,
-            int targetTagId
-    ) {
+            int targetTagId) {
+
         this.drive = drive;
         this.turret = turret;
         this.limelight = limelight;
@@ -107,90 +69,47 @@ public class HybridTurretTrackingCommand {
         this.targetTagId = targetTagId;
     }
 
-    // ==========================================
-    // ACTIVAR TRACKING
-    // ==========================================
-
     public void enable() {
 
-        // No reiniciamos el encoder.
-        // El cero fisico debe calibrarse aparte.
-
-        double robotX = drive.getX();
-        double robotY = drive.getY();
-
-        double angleToTarget = Math.toDegrees(
-                Math.atan2(
-                        targetY - robotY,
-                        targetX - robotX
-                )
-        );
-
+        // La torreta debe estar apuntando
+        // fisicamente al objetivo antes de habilitar.
+        double fieldBearing = getFieldBearingDeg();
         double robotHeading = drive.getHeadingDegrees();
+        double turretAngle = turret.getCurrentAngleDeg();
 
-        // Convencion heredada del tracking anterior:
-        // la torreta inicia apuntando al objetivo.
-        turretFieldZeroDeg = normalizeDegrees(
-                angleToTarget
-                        - robotHeading
-                        - turret.getCurrentAngleDeg()
+        fieldOffsetDeg = normalize(
+                fieldBearing - robotHeading - turretAngle
         );
 
-        visionFilter.reset();
-        previousResult = null;
-        appliedVisionCorrectionDeg = 0.0;
+        visionCorrectionDeg = 0.0;
+        lastTx = Double.NaN;
+        lastFrameTimestamp = Double.NaN;
 
-        previousDesiredAngleDeg = turret.getCurrentAngleDeg();
-        previousTimeNs = System.nanoTime();
+        lastUpdateNs = System.nanoTime();
+        lastVisionMs = 0;
 
+        tagVisible = false;
+        lastVisionAccepted = false;
+
+        desiredAngleDeg = turretAngle;
         enabled = true;
-        mode = TrackingMode.ODOMETRY;
     }
 
-    // ==========================================
-    // DESACTIVAR
-    // ==========================================
-
     public void disable() {
-
         enabled = false;
-        mode = TrackingMode.DISABLED;
-
-        turret.setTargetVelocityDegPerSec(0.0);
-        turret.setTargetAngleDeg(turret.getCurrentAngleDeg());
-
+        visionEnabled = false;
+        tagVisible = false;
+        lastVisionAccepted = false;
         turret.stop();
     }
 
-    // ==========================================
-    // CAMBIAR OBJETIVO
-    // ==========================================
-
-    public void setTarget(
-            double x,
-            double y,
-            int tagId
-    ) {
-
-        boolean changed =
-                targetTagId != tagId
-                        || targetX != x
-                        || targetY != y;
-
-        targetX = x;
-        targetY = y;
-        targetTagId = tagId;
-
-        if (changed) {
-            visionFilter.reset();
-            previousResult = null;
-            appliedVisionCorrectionDeg = 0.0;
-        }
+    public void setVisionEnabled(boolean value) {
+        visionEnabled = value;
+        visionCorrectionDeg = 0.0;
+        lastTx = Double.NaN;
+        lastFrameTimestamp = Double.NaN;
+        lastVisionMs = 0;
     }
-
-    // ==========================================
-    // EJECUCION PRINCIPAL
-    // ==========================================
 
     public void execute() {
 
@@ -199,246 +118,213 @@ public class HybridTurretTrackingCommand {
         }
 
         long nowNs = System.nanoTime();
-        long nowMs = nowNs / 1_000_000L;
+        long nowMs = nowNs / 1000000L;
 
-        double dt = (nowNs - previousTimeNs) / 1e9;
+        double dt = (nowNs - lastUpdateNs) / 1e9;
+        lastUpdateNs = nowNs;
 
-        if (dt <= 0.0 || dt > 0.25) {
+        if (dt <= 0.0 || dt > 0.2) {
             dt = 0.02;
         }
 
-        previousTimeNs = nowNs;
+        // 1. APUNTADO GEOMETRICO
+        double fieldBearing = getFieldBearingDeg();
 
-        // --------------------------------------
-        // 1. POSICION DEL ROBOT
-        // --------------------------------------
-
-        double robotX = drive.getX();
-        double robotY = drive.getY();
-        double robotHeading = drive.getHeadingDegrees();
-
-        double dx = targetX - robotX;
-        double dy = targetY - robotY;
-
-        distanceToTarget = Math.hypot(dx, dy);
-
-        fieldAngleDeg = Math.toDegrees(
-                Math.atan2(dy, dx)
+        double geometricAngle = normalize(
+                fieldBearing
+                        - drive.getHeadingDegrees()
+                        - fieldOffsetDeg
         );
 
-        // --------------------------------------
-        // 2. ANGULO BASE POR PINPOINT
-        // --------------------------------------
+        // 2. CORRECCION VISUAL
+        tagVisible = false;
+        lastVisionAccepted = false;
 
-        double odometryAngleDeg = normalizeDegrees(
-                fieldAngleDeg
-                        - robotHeading
-                        - turretFieldZeroDeg
-        );
+        if (visionEnabled) {
 
-        // --------------------------------------
-        // 3. LEER LIMELIGHT
-        // --------------------------------------
+            LLResult result = limelight.getLatestResult();
 
-        LLResult result = limelight.getLatestResult();
+            if (result != null) {
 
-        if (result != null && result != previousResult) {
+                long age = result.getStaleness();
 
-            previousResult = result;
+                boolean fresh =
+                        age >= 0
+                                && age <= MAX_STALENESS_MS;
 
-            boolean fresh =
-                    result.getStaleness() >= 0.0
-                            && result.getStaleness() <= MAX_RESULT_AGE_MS;
+                double timestamp = result.getTimestamp();
 
-            if (result.isValid() && fresh) {
+                boolean newFrame =
+                        Double.isFinite(timestamp)
+                                && timestamp > 0.0
+                                && (Double.isNaN(lastFrameTimestamp)
+                                || timestamp > lastFrameTimestamp);
 
-                for (LLResultTypes.FiducialResult tag :
-                        result.getFiducialResults()) {
+                if (newFrame) {
 
-                    if (tag.getFiducialId() == targetTagId) {
+                    lastFrameTimestamp = timestamp;
 
-                        visionFilter.addMeasurement(
-                                tag.getTargetXDegrees(),
-                                true,
-                                nowMs
-                        );
+                    if (fresh && result.isValid()) {
 
-                        break;
+                        for (LLResultTypes.FiducialResult tag
+                                : result.getFiducialResults()) {
+
+                            if (tag.getFiducialId()
+                                    != targetTagId) {
+                                continue;
+                            }
+
+                            double tx =
+                                    tag.getTargetXDegrees();
+
+                            if (!Double.isFinite(tx)) {
+                                break;
+                            }
+
+                            tagVisible = true;
+
+                            boolean acceptable =
+                                    Math.abs(tx) <= MAX_TX;
+
+                            if (Double.isFinite(lastTx)) {
+                                acceptable &=
+                                        Math.abs(tx - lastTx)
+                                                <= MAX_TX_JUMP;
+                            }
+
+                            if (acceptable) {
+
+                                // Esta es una correccion
+                                // experimental, no una
+                                // calibracion definitiva.
+                                double requestedCorrection =
+                                        clamp(
+                                                VISION_SIGN
+                                                        * tx
+                                                        * VISION_GAIN,
+                                                -MAX_VISION_CORRECTION,
+                                                MAX_VISION_CORRECTION
+                                        );
+
+                                double filtered =
+                                        visionCorrectionDeg
+                                                + VISION_ALPHA
+                                                * (requestedCorrection
+                                                - visionCorrectionDeg);
+
+                                double maxStep =
+                                        MAX_VISION_RATE * dt;
+
+                                visionCorrectionDeg += clamp(
+                                        filtered
+                                                - visionCorrectionDeg,
+                                        -maxStep,
+                                        maxStep
+                                );
+
+                                lastTx = tx;
+                                lastVisionMs = nowMs;
+                                lastVisionAccepted = true;
+                            }
+
+                            break;
+                        }
                     }
                 }
             }
-        }
 
-        visionFilter.checkTimeout(nowMs);
+            // Si desaparece el tag,
+            // regresar suavemente a odometria.
+            if (nowMs - lastVisionMs > 250) {
 
-        // --------------------------------------
-        // 4. CORRECCION VISUAL
-        // --------------------------------------
+                double maxStep = MAX_VISION_RATE * dt;
 
-        double requestedCorrection =
-                VISION_SIGN * visionFilter.getCorrectionDeg();
+                visionCorrectionDeg += clamp(
+                        -visionCorrectionDeg,
+                        -maxStep,
+                        maxStep
+                );
 
-        // Aplicar gradualmente la correccion
-        double maxStep =
-                MAX_VISION_RATE_DEG_S * dt;
-
-        double difference =
-                requestedCorrection
-                        - appliedVisionCorrectionDeg;
-
-        appliedVisionCorrectionDeg += clamp(
-                difference,
-                -maxStep,
-                maxStep
-        );
-
-        // --------------------------------------
-        // 5. ANGULO FINAL
-        // --------------------------------------
-
-        double requestedAngleDeg =
-                odometryAngleDeg
-                        + appliedVisionCorrectionDeg;
-
-
-        desiredAngleDeg = safety.calculateSafeTarget(
-                requestedAngleDeg,
-                turret.getCurrentAngleDeg()
-        );
-
-        boolean limitReached =
-                safety.getStatus()
-                        != TurretSafetyManager.Status.SAFE;
-
-
-        // --------------------------------------
-        // 6. VELOCIDAD OBJETIVO PARA FEEDFORWARD
-        // --------------------------------------
-
-        double angleDifference = normalizeDegrees(
-                desiredAngleDeg - previousDesiredAngleDeg
-        );
-
-        targetVelocityDegPerSec = clamp(
-                angleDifference / dt,
-                -MAX_TARGET_VELOCITY,
-                MAX_TARGET_VELOCITY
-        );
-
-        // No aplicar feedforward hacia fuera
-        // de los limites cuando el target
-        // ya esta limitado.
-        if (limitReached) {
-            targetVelocityDegPerSec = 0.0;
-        }
-
-        previousDesiredAngleDeg = desiredAngleDeg;
-
-        // --------------------------------------
-        // 7. CONTROLAR TORRETA
-        // --------------------------------------
-
-        turret.setTargetAngleDeg(desiredAngleDeg);
-
-        turret.setTargetVelocityDegPerSec(
-                targetVelocityDegPerSec
-        );
-
-        turret.update();
-
-        // --------------------------------------
-        // 8. ESTADO DEL TRACKING
-        // --------------------------------------
-
-        if (limitReached) {
-
-            mode = TrackingMode.LIMIT_REACHED;
-
-        } else if (!visionFilter.isVisionReady()) {
-
-            mode = TrackingMode.ODOMETRY;
-
-        } else if (visionFilter.getMode()
-                == LimelightVisionFilter.Mode.VIBRATING) {
-
-            mode = TrackingMode.VISION_VIBRATING;
+                lastTx = Double.NaN;
+            }
 
         } else {
-
-            mode = TrackingMode.VISION_STABLE;
+            visionCorrectionDeg = 0.0;
         }
+
+        // 3. ANGULO FINAL
+        double requestedAngle =
+                geometricAngle + visionCorrectionDeg;
+
+        desiredAngleDeg = clamp(
+                requestedAngle,
+                MIN_ANGLE,
+                MAX_ANGLE
+        );
+
+        // 4. VELOCIDAD DE REFERENCIA
+        // En esta primera version usamos 0.
+        // Despues integraremos feedforward
+        // de velocidad angular real.
+        turret.setTargetVelocityDegPerSec(0.0);
+        turret.setTargetAngleDeg(desiredAngleDeg);
+
+        // 5. PID EXISTENTE
+        turret.update();
     }
 
-    // ==========================================
-    // TELEMETRIA
-    // ==========================================
+    private double getFieldBearingDeg() {
 
-    public TrackingMode getMode() {
-        return mode;
+        double dx = targetX - drive.getX();
+        double dy = targetY - drive.getY();
+
+        return Math.toDegrees(Math.atan2(dy, dx));
+    }
+
+    private double normalize(double angle) {
+
+        while (angle > 180.0) angle -= 360.0;
+        while (angle < -180.0) angle += 360.0;
+
+        return angle;
+    }
+
+    private double clamp(
+            double value,
+            double minimum,
+            double maximum) {
+
+        return Math.max(
+                minimum,
+                Math.min(maximum, value)
+        );
     }
 
     public boolean isEnabled() {
         return enabled;
     }
 
-    public int getTargetTagId() {
-        return targetTagId;
+    public boolean isVisionEnabled() {
+        return visionEnabled;
     }
 
-    public double getDistanceToTarget() {
-        return distanceToTarget;
+    public boolean isTagVisible() {
+        return tagVisible;
     }
 
-    public double getFieldAngleDeg() {
-        return fieldAngleDeg;
+    public boolean wasVisionAccepted() {
+        return lastVisionAccepted;
     }
 
     public double getDesiredAngleDeg() {
         return desiredAngleDeg;
     }
 
-    public double getAppliedVisionCorrectionDeg() {
-        return appliedVisionCorrectionDeg;
+    public double getVisionCorrectionDeg() {
+        return visionCorrectionDeg;
     }
 
-    public double getFilteredTx() {
-        return visionFilter.getFilteredTx();
-    }
-
-    public double getVisionNoiseDeg() {
-        return visionFilter.getStandardDeviation();
-    }
-
-    public double getTargetVelocityDegPerSec() {
-        return targetVelocityDegPerSec;
-    }
-
-    public boolean isVisionReady() {
-        return visionFilter.isVisionReady();
-    }
-
-    // ==========================================
-    // UTILIDADES
-    // ==========================================
-
-    private static double normalizeDegrees(double angle) {
-
-        while (angle > 180.0) {
-            angle -= 360.0;
-        }
-
-        while (angle < -180.0) {
-            angle += 360.0;
-        }
-
-        return angle;
-    }
-
-    private static double clamp(
-            double value,
-            double min,
-            double max
-    ) {
-        return Math.max(min, Math.min(max, value));
+    public double getCurrentAngleDeg() {
+        return turret.getCurrentAngleDeg();
     }
 }

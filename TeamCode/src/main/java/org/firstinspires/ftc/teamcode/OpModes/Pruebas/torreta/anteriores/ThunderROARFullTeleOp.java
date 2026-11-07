@@ -14,7 +14,7 @@ import org.firstinspires.ftc.teamcode.Commands.drive.MecanumDriveCmd;
 import org.firstinspires.ftc.teamcode.Commands.TurretFieldTrackingCommand;
 import org.firstinspires.ftc.teamcode.Subsystems.DriveSubsystem;
 import org.firstinspires.ftc.teamcode.Subsystems.TurretSubsystem;
-@Disabled
+
 @TeleOp(name = "ThunderROAR - Full TeleOp SIN SENSORES")
 public class ThunderROARFullTeleOp extends OpMode {
 
@@ -321,11 +321,11 @@ public class ThunderROARFullTeleOp extends OpMode {
                 tracking.getDistanceToTarget()
         );
 
-        telemetry.addData(
-                "Desired",
-                "%.2f",
-                tracking.getDesiredAngleDeg()
-        );
+//        telemetry.addData(
+//                "Desired",
+//                "%.2f",
+////                tracking.getDesiredAngleDeg()
+//        );
 
         telemetry.addData(
                 "Target",
