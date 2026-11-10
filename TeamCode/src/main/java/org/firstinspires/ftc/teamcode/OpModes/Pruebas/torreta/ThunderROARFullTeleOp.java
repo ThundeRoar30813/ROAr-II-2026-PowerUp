@@ -512,7 +512,7 @@ public class ThunderROARFullTeleOp extends OpMode {
 
         if (driveCommand != null) {
 
-            driveCommand.end();
+            //driveCommand.end();
 
         } else if (drive != null) {
 

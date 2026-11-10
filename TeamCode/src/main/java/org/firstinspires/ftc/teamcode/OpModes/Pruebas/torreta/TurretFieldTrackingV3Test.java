@@ -290,7 +290,7 @@ public class TurretFieldTrackingV3Test extends OpMode {
         }
 
         if (driveCommand != null) {
-            driveCommand.end();
+            //driveCommand.end();
         }
     }
 }

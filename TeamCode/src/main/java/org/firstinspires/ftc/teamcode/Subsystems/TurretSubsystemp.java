@@ -28,12 +28,12 @@ public class TurretSubsystemp {
     // PID QUE YA CALIBRASTE
     // =========================================================
 
-    private static final double kP = 0.025;
-    private static final double kI = 0.0007;
+    private static final double kP = 0.045;
+    private static final double kI = 0.0035;
     private static final double kD = 0.0007;
 
     private static final double MAX_POWER = 0.80;
-    private static final double MIN_POWER = 0.12;
+    private static final double MIN_POWER = 0.42;
 
     private static final double TOLERANCE_DEG = 1.0;
 

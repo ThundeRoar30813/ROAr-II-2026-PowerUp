@@ -202,7 +202,7 @@ public class TurretHeadingLockTest extends OpMode {
     @Override
     public void stop() {
 
-        driveCommand.end();
+        //driveCommand.end();
 
         turretHeadingCommand.disable();
 

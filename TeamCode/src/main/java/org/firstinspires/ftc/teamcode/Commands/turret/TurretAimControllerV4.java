@@ -5,6 +5,8 @@ import com.qualcomm.robotcore.util.Range;
 
 import org.firstinspires.ftc.teamcode.Subsystems.TurretSubsystemV4;
 
+import java.util.concurrent.TimeUnit;
+
 public class TurretAimControllerV4 {
 
     private final TurretSubsystemV4 turret;
@@ -13,10 +15,10 @@ public class TurretAimControllerV4 {
     // Verificar signo con shooter apagado.
     public static double TX_TO_TURRET_SIGN = -1.0;
 
-    public static double TX_DEADBAND = 0.7;
+    public static double TX_DEADBAND = 1.0;
     public static double MAX_CORRECTION_PER_FRAME = 2.0;
     public static double MAX_TX = 20.0;
-    public static double MAX_RATE_DEG_S = 90.0;
+    public static double MAX_RATE_DEG_S = 120.0;
 
     private boolean enabled;
     private int lastTag = -1;
@@ -122,7 +124,7 @@ public class TurretAimControllerV4 {
 
         // Filtro exponencial.
         filteredTx = Double.isFinite(filteredTx)
-                ? 0.7 * filteredTx + 0.3 * raw
+                ? 0.65 * filteredTx + 0.35 * raw
                 : raw;
 
         if (Math.abs(filteredTx) <= TX_DEADBAND) {
@@ -133,11 +135,28 @@ public class TurretAimControllerV4 {
             return;
         }
 
+        if (Math.abs(turret.getError()) > 5.0){
+            status = "WAITING:_FOR_MOTOR";
+
+            turret.update();
+            return;
+
+        }
+
         double requested = Range.clip(
                 TX_TO_TURRET_SIGN * filteredTx * 0.20,
                 -MAX_CORRECTION_PER_FRAME,
                 MAX_CORRECTION_PER_FRAME
         );
+
+        if (Math.abs(filteredTx) < 3.0 &&
+        Math.abs(turret.getVelocity()) > 25.0) {
+            status = "SETTLING";
+            turret.update();
+
+            return;
+
+        }
 
         correction = Range.clip(
                 requested,
@@ -148,8 +167,8 @@ public class TurretAimControllerV4 {
         double newTarget =
                 turret.getTarget() + correction;
 
-        if (newTarget < TurretSubsystemV4.MIN_ANGLE ||
-                newTarget > TurretSubsystemV4.MAX_ANGLE) {
+        if (newTarget < TurretSubsystemV4.MIN_ANGLE_DEG ||
+                newTarget > TurretSubsystemV4.MAX_ANGLE_DEG) {
 
             status = "CABLE_LIMIT_HOLD";
 

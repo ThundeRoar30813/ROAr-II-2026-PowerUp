@@ -1,8 +1,11 @@
+
 package org.firstinspires.ftc.teamcode.Commands.drive;
 
-import org.firstinspires.ftc.teamcode.Subsystems.DriveSubsystem;
-
 import java.util.function.DoubleSupplier;
+
+import com.qualcomm.robotcore.util.Range;
+
+import org.firstinspires.ftc.teamcode.Subsystems.DriveSubsystem;
 
 public class MecanumDriveCmd {
 
@@ -12,63 +15,36 @@ public class MecanumDriveCmd {
     private final DoubleSupplier strafe;
     private final DoubleSupplier turn;
 
+    public static double DEADBAND = 0.05;
 
     public MecanumDriveCmd(
             DriveSubsystem drive,
             DoubleSupplier forward,
             DoubleSupplier strafe,
-            DoubleSupplier turn
-    ) {
+            DoubleSupplier turn) {
 
         this.drive = drive;
-
         this.forward = forward;
         this.strafe = strafe;
         this.turn = turn;
     }
 
+    private double applyDeadband(double value) {
+        return Math.abs(value) < DEADBAND
+                ? 0.0
+                : Range.clip(value, -1.0, 1.0);
+    }
 
     public void execute() {
 
-        double f =
-                forward.getAsDouble();
-
-        double s =
-                strafe.getAsDouble();
-
-        double t =
-                turn.getAsDouble();
-
-
-        // Deadband
-        f = deadband(f, 0.05);
-        s = deadband(s, 0.05);
-        t = deadband(t, 0.05);
-
-
         drive.drive(
-                f,
-                s,
-                t
+                applyDeadband(forward.getAsDouble()),
+                applyDeadband(strafe.getAsDouble()),
+                applyDeadband(turn.getAsDouble())
         );
     }
 
-
-    public void end() {
-
+    public void stop() {
         drive.stop();
-    }
-
-
-    private double deadband(
-            double value,
-            double deadband
-    ) {
-
-        if (Math.abs(value) < deadband) {
-            return 0;
-        }
-
-        return value;
     }
 }
