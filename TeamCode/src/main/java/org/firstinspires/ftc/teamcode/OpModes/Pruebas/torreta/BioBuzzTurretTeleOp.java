@@ -430,35 +430,35 @@ public class BioBuzzTurretTeleOp extends OpMode {
 
         telemetry.addLine("===== LIMELIGHT =====");
 
-        telemetry.addData(
-                "Vision Status",
-                vision.getStatus()
-        );
-
-        telemetry.addData(
-                "Result Valid",
-                vision.isResultValid()
-        );
-
-        telemetry.addData(
-                "Any Tag Visible",
-                vision.hasAnyTag()
-        );
+//        telemetry.addData(
+//                "Vision Status",
+//                vision.getStatus()
+//        );
+//
+//        telemetry.addData(
+//                "Result Valid",
+//                vision.isResultValid()
+//        );
+//
+//        telemetry.addData(
+//                "Any Tag Visible",
+//                vision.hasAnyTag()
+//        );
 
         telemetry.addData(
                 "Selected Tag",
                 vision.getSelectedTag()
         );
 
-        telemetry.addData(
-                "Detected Tag",
-                vision.getDetectedTag()
-        );
-
-        telemetry.addData(
-                "Tag Count",
-                vision.getDetectedTagCount()
-        );
+//        telemetry.addData(
+//                "Detected Tag",
+//                vision.getDetectedTag()
+//        );
+//
+//        telemetry.addData(
+//                "Tag Count",
+//                vision.getDetectedTagCount()
+//        );
 
         telemetry.addData(
                 "Tag Visible",

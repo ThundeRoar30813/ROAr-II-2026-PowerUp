@@ -295,23 +295,23 @@ public class TurretAimControllerV5 {
         double target =
                 baseTarget + visionOffset;
 
-        double clippedTarget = Range.clip(
-                target,
-                TurretSubsystemV4.MIN_ANGLE_DEG,
-                TurretSubsystemV4.MAX_ANGLE_DEG
-        );
+//        double clippedTarget = Range.clip(
+//                target,
+//                TurretSubsystemV4.MIN_ANGLE_DEG,
+//                TurretSubsystemV4.MAX_ANGLE_DEG
+//        );
 
-        if (clippedTarget != target) {
+//        if (clippedTarget != target) {
+//
+//            // Evitar acumulacion de comandos
+//            // fuera del recorrido permitido
+//            baseTarget =
+//                    clippedTarget - visionOffset;
+//
+//            status = "ANGLE_LIMIT";
+//        }
 
-            // Evitar acumulacion de comandos
-            // fuera del recorrido permitido
-            baseTarget =
-                    clippedTarget - visionOffset;
-
-            status = "ANGLE_LIMIT";
-        }
-
-        turret.setTarget(clippedTarget);
+//        turret.setTarget(clippedTarget);
         turret.update();
     }
 }

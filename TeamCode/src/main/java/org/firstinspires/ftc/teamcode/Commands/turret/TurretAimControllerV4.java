@@ -167,16 +167,16 @@ public class TurretAimControllerV4 {
         double newTarget =
                 turret.getTarget() + correction;
 
-        if (newTarget < TurretSubsystemV4.MIN_ANGLE_DEG ||
-                newTarget > TurretSubsystemV4.MAX_ANGLE_DEG) {
-
-            status = "CABLE_LIMIT_HOLD";
-
-        } else {
-
-            turret.setTarget(newTarget);
-            status = "VISION_TRACKING";
-        }
+//        if (newTarget < TurretSubsystemV4.MIN_ANGLE_DEG ||
+//                newTarget > TurretSubsystemV4.MAX_ANGLE_DEG) {
+//
+//            status = "CABLE_LIMIT_HOLD";
+//
+//        } else {
+//
+//            turret.setTarget(newTarget);
+//            status = "VISION_TRACKING";
+//        }
 
         turret.update();
     }

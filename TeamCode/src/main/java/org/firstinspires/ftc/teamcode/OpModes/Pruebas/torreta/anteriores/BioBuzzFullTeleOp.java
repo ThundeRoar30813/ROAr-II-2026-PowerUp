@@ -823,20 +823,20 @@ public class BioBuzzFullTeleOp extends OpMode {
 
         telemetry.addLine("===== LIMELIGHT =====");
 
-        telemetry.addData(
-                "Vision",
-                vision.getStatus()
-        );
+//        telemetry.addData(
+//                "Vision",
+//                vision.getStatus()
+//        );
 
         telemetry.addData(
                 "Tag Visible",
                 vision.hasTarget()
         );
 
-        telemetry.addData(
-                "Detected Tag",
-                vision.getDetectedTag()
-        );
+//        telemetry.addData(
+//                "Detected Tag",
+//                vision.getDetectedTag()
+//        );
 
         telemetry.addData(
                 "Tx",

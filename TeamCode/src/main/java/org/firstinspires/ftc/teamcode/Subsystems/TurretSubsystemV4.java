@@ -19,8 +19,8 @@ public class TurretSubsystemV4 {
     public static double MOTOR_SIGN = 1.0;
 
     // PID: comenzar conservador para evitar oscilacion
-    public double kP = 0.055;
-    public double kD = 0.0070;
+    public double kP = 0.035;
+    public double kD = 0.0015;
     public double kS = 0.0;
 
     // Se puede aumentar despues de verificar
