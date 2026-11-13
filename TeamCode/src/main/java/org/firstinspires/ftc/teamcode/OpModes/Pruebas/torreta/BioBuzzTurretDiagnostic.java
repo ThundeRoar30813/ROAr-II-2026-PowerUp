@@ -45,7 +45,7 @@ public class BioBuzzTurretDiagnostic extends OpMode {
         drive = new DriveSubsystem(hardwareMap);
 
         // Pose provisional para diagnostico
-        drive.setInitialPose(72, 72, 0);
+        drive.setInitialPose(55, 2, 0);
 
         driveCmd = new MecanumDriveCmd(
                 drive,

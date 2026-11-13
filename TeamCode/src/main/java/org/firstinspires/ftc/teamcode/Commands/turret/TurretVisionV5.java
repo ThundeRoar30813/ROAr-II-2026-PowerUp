@@ -19,6 +19,10 @@ public class TurretVisionV5 {
 
     private final Limelight3A limelight;
 
+
+    private double distanceToTagMeters = Double.NaN;
+
+
     private int selectedTag = 37;
     private int detectedTag = -1;
     private int detectedTagCount = 0;
@@ -128,7 +132,17 @@ public class TurretVisionV5 {
         return status;
     }
 
+
+    public double getDistanceToTagMeters() {
+        return distanceToTagMeters;
+    }
+
+
     public void update() {
+
+
+        distanceToTagMeters = Double.NaN;
+
 
         newFrame = false;
         targetVisible = false;
@@ -203,6 +217,7 @@ public class TurretVisionV5 {
 
             int id = fiducial.getFiducialId();
 
+
             if (!anyTagVisible) {
 
                 detectedTag = id;
@@ -234,6 +249,29 @@ public class TurretVisionV5 {
 
             tx = measuredTx;
             ty = measuredTy;
+
+
+            if (fiducial.getTargetPoseCameraSpace() != null &&
+                    fiducial.getTargetPoseCameraSpace().getPosition() != null) {
+
+                double x = fiducial.getTargetPoseCameraSpace()
+                        .getPosition().x;
+                double y = fiducial.getTargetPoseCameraSpace()
+                        .getPosition().y;
+                double z = fiducial.getTargetPoseCameraSpace()
+                        .getPosition().z;
+
+                if (Double.isFinite(x) &&
+                        Double.isFinite(y) &&
+                        Double.isFinite(z)) {
+
+                    // Pose 3D expresada en metros.
+                    distanceToTagMeters = Math.sqrt(
+                            x * x + y * y + z * z
+                    );
+                }
+            }
+
 
             detectedTag = id;
             targetVisible = true;

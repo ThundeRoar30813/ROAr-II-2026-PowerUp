@@ -1,8 +1,6 @@
-
 package org.firstinspires.ftc.teamcode.Commands.turret;
 
 import com.qualcomm.robotcore.util.Range;
-
 import org.firstinspires.ftc.teamcode.Subsystems.DriveSubsystem;
 import org.firstinspires.ftc.teamcode.Subsystems.TurretSubsystemV4;
 
@@ -18,90 +16,58 @@ public class TurretAimControllerV77 {
     private final TurretSubsystemV4 turret;
     private final TurretVisionV5 vision;
 
-    public static double HEADING_SIGN = 1.0;
-    public static double TX_SIGN = -1.0;
-
-    public static double VISION_GAIN_FAR = 0.85;
-    public static double VISION_GAIN_NEAR = 0.07;
-
-    public static double MAX_CORRECTION_PER_FRAME = 8.0;
-
-    public static double TX_DEADBAND = 1.0;
-    public static double TX_NEAR_DEG = 4.0;
-
-    public static double TX_ALPHA_FAR = 0.85;
-    public static double TX_ALPHA_NEAR = 0.35;
-
-    public static double MAX_TX = 27.0;
-    public static double MAX_AGE_MS = 150.0;
-    public static double LOST_HOLD_S = 0.20;
-
-    public static double MAX_SPEED = 450.0;
-    public static double MAX_ACCEL = 3200.0;
-    public static double MAX_MOTOR_LAG = 18.0;
-
-    public static double RATE_FILTER_S = 0.04;
-    public static double MAX_HEADING_STEP = 45.0;
-    public static double FF_FILTER_S = 0.04;
-
-    public static double MAX_FRAME_GAP_S = 0.30;
-
-    // Compensacion por movimiento X/Y.
-    // Ajustar usando las coordenadas reales
-    // del campo y los AprilTags.
-    public static double POSITION_GAIN = 0.35;
-    public static double MAX_POSITION_STEP = 2.0;
-    public static double MIN_TARGET_DISTANCE = 8.0;
-
+    // Coordenadas Pedro Pathing en pulgadas (ajusta X/Y exactos midiendo en tu campo real)
     public static double TAG34_X = 51.0;
     public static double TAG34_Y = 57.0;
+
+    public static double TAG35_X = 55.0;
+    public static double TAG35_Y = 57.0;
 
     public static double TAG37_X = 62.0;
     public static double TAG37_Y = 57.0;
 
+    // Signos de dirección
+    public static double TURRET_DIRECTION_SIGN = -1.0; // Invierte el sentido relativo respecto a Pedro Pathing
+    public static double TX_SIGN = -1.0;               // Invierte el sentido de corrección de la Limelight si empuja al lado contrario
+
+    // Ajustes de Limelight (Offset Suave anti-vibración)
+    public static double VISION_OFFSET_SPEED = 1.5;    // Grados por segundo que la cámara puede corregir
+    public static double MAX_VISION_OFFSET = 12.0;     // Máximo error (en grados) que puede corregir la cámara
+    public static double TX_DEADBAND = 1.5;            // Zona muerta en grados para ignorar micro-vibraciones
+
     private Mode mode = Mode.COMBINED;
     private boolean enabled = false;
+    private String status = "DISABLED";
 
-    private double baseTarget;
-    private double smoothTarget;
-    private double smoothVelocity;
+    private double baseTarget = 0.0;
+    private double visionOffset = 0.0;
+    private int selectedTag = -1;
 
-    private double filteredTx = Double.NaN;
-    private double visionRate = 0;
-    private double chassisRate = 0;
-    private double filteredFF = 0;
-
-    private double lastHeading;
-    private double lastBearing = Double.NaN;
-
-    private int lastTag = -1;
+    private double lastRobotHeading = Double.NaN;
+    private double filteredChassisAngVel = 0.0;
 
     private long lastNs;
-    private long lastValidVisionNs;
-    private long lastProcessedFrame = -1;
-    private long lastFrameNs;
-
-    private String status = "DISABLED";
 
     public TurretAimControllerV77(
             DriveSubsystem drive,
             TurretSubsystemV4 turret,
             TurretVisionV5 vision) {
-
         this.drive = drive;
         this.turret = turret;
         this.vision = vision;
     }
 
+    private double[] targetFor(int id) {
+        if (id == 34) return new double[]{TAG34_X, TAG34_Y};
+        if (id == 35) return new double[]{TAG35_X, TAG35_Y};
+        if (id == 37) return new double[]{TAG37_X, TAG37_Y};
+        return null;
+    }
+
     public void setMode(Mode next) {
-
         if (next == null || next == mode) return;
-
         mode = next;
-
-        if (enabled) {
-            reset();
-        }
+        if (enabled) reset();
     }
 
     public Mode getMode() {
@@ -116,664 +82,192 @@ public class TurretAimControllerV77 {
         return status;
     }
 
-    public double getFilteredTx() {
-        return filteredTx;
-    }
-
-    public double getVisionRate() {
-        return visionRate;
-    }
-
-    public double getChassisRate() {
-        return chassisRate;
-    }
-
     public double getBaseTarget() {
         return baseTarget;
     }
 
-    public double getSmoothTarget() {
-        return smoothTarget;
-    }
-
-    public double getSmoothVelocity() {
-        return smoothVelocity;
-    }
-
-    public double getFilteredFF() {
-        return filteredFF;
+    public double getVisionOffset() {
+        return visionOffset;
     }
 
     public void enable() {
-
         if (turret.isFault()) {
             status = "FAULT";
             return;
         }
-
         turret.enableHold();
-
         if (!turret.isEnabled()) {
             status = "NOT_ENABLED";
             return;
         }
-
         enabled = true;
         reset();
     }
 
     private void reset() {
-
         baseTarget = turret.getAngle();
-
-        // CORRECCION V77:
-        // Inicializar con el angulo real,
-        // no con una variable sin declarar.
-        smoothTarget = turret.getAngle();
-
-        smoothVelocity = 0;
-
-        filteredTx = Double.NaN;
-        visionRate = 0;
-        chassisRate = 0;
-        filteredFF = 0;
-
-        lastHeading = drive.getHeadingDegrees();
-
-        lastTag = vision.getSelectedTag();
-        lastBearing = currentBearing(lastTag);
-
+        visionOffset = 0.0;
+        selectedTag = vision.getSelectedTag();
+        lastRobotHeading = Double.NaN;
+        filteredChassisAngVel = 0.0;
         lastNs = System.nanoTime();
-        lastValidVisionNs = 0;
-        lastFrameNs = 0;
-
-        lastProcessedFrame =
-                vision.getFrameSequence();
-
-        turret.setVelocityFeedforward(0);
-        turret.setTarget(smoothTarget);
-
         status = "READY";
     }
 
     public void disable() {
-
         enabled = false;
-        smoothVelocity = 0;
-        visionRate = 0;
-        filteredFF = 0;
-
-        turret.setVelocityFeedforward(0);
+        turret.setVelocityFeedforward(0.0);
         turret.disable();
-
         status = "DISABLED";
     }
 
-    private double angleDelta(
-            double current,
-            double previous) {
+    private double normalizeAngleToCurrent(double target, double current) {
+        double diff = (target - current) % 360.0;
+        if (diff > 180.0) diff -= 360.0;
+        if (diff < -180.0) diff += 360.0;
 
-        double delta = current - previous;
+        double candidate = current + diff;
 
-        while (delta > 180) {
-            delta -= 360;
-        }
-
-        while (delta < -180) {
-            delta += 360;
-        }
-
-        return delta;
-    }
-
-    private double[] targetFor(int id) {
-
-        if (id == 34) {
-            return new double[]{
-                    TAG34_X,
-                    TAG34_Y
-            };
-        }
-
-        if (id == 37) {
-            return new double[]{
-                    TAG37_X,
-                    TAG37_Y
-            };
-        }
-
-        return null;
-    }
-
-    private double currentBearing(int id) {
-
-        double[] target = targetFor(id);
-
-        if (target == null) {
-            return Double.NaN;
-        }
-
-        double dx = target[0] - drive.getX();
-        double dy = target[1] - drive.getY();
-
-        if (!Double.isFinite(dx)
-                || !Double.isFinite(dy)
-                || Math.hypot(dx, dy)
-                < MIN_TARGET_DISTANCE) {
-
-            return Double.NaN;
-        }
-
-        return Math.toDegrees(
-                Math.atan2(dy, dx)
-        );
-    }
-
-    private double visionGain(double error) {
-
-        if (error <= 2) {
-            return VISION_GAIN_NEAR;
-        }
-
-        if (error >= 6) {
-            return VISION_GAIN_FAR;
-        }
-
-        double t = (error - 2) / 4;
-
-        return VISION_GAIN_NEAR
-                + t * (
-                VISION_GAIN_FAR
-                        - VISION_GAIN_NEAR
-        );
-    }
-
-    // ==========================================
-    // SELECCION DE ANGULO EQUIVALENTE
-    // ==========================================
-
-    private double choosePhysicalTarget(
-            double virtualTarget) {
-
-        double min = TurretSubsystemV4.MIN_ANGLE_DEG;
-        double max = TurretSubsystemV4.MAX_ANGLE_DEG;
-
-        double actual = turret.getAngle();
-
-        double bestTarget = Double.NaN;
-        double bestDistance = Double.POSITIVE_INFINITY;
-
-        // Buscar representaciones equivalentes:
-        // theta, theta +/- 360, etc.
-        for (int k = -3; k <= 3; k++) {
-
-            double candidate =
-                    virtualTarget + 360.0 * k;
-
-            if (candidate < min || candidate > max) {
-                continue;
+        if (candidate > TurretSubsystemV4.MAX_ANGLE_DEG) {
+            double unwrapped = candidate - 360.0;
+            if (unwrapped >= TurretSubsystemV4.MIN_ANGLE_DEG) {
+                return unwrapped;
             }
-
-            double distance =
-                    Math.abs(candidate - actual);
-
-            if (distance < bestDistance) {
-
-                bestDistance = distance;
-                bestTarget = candidate;
+        }
+        if (candidate < TurretSubsystemV4.MIN_ANGLE_DEG) {
+            double unwrapped = candidate + 360.0;
+            if (unwrapped <= TurretSubsystemV4.MAX_ANGLE_DEG) {
+                return unwrapped;
             }
         }
 
-        if (Double.isFinite(bestTarget)) {
-            return bestTarget;
-        }
-
-        // No existe equivalente dentro del
-        // recorrido mecanico.
-        // Elegir el limite con menor error
-        // angular respecto al objetivo.
-        double bestMiss = Double.POSITIVE_INFINITY;
-        double bestBound = actual;
-
-        for (int k = -3; k <= 3; k++) {
-
-            double candidate =
-                    virtualTarget + 360.0 * k;
-
-            double bound = Range.clip(
-                    candidate,
-                    min,
-                    max
-            );
-
-            double miss =
-                    Math.abs(candidate - bound);
-
-            if (miss < bestMiss) {
-
-                bestMiss = miss;
-                bestBound = bound;
-            }
-        }
-
-        status = "TARGET_OUTSIDE_ARC";
-
-        return bestBound;
+        return candidate;
     }
-
-    // ==========================================
-    // UPDATE
-    // ==========================================
 
     public void update() {
-
         if (!enabled) return;
 
         if (turret.isFault()) {
-
             disable();
             status = "FAULT";
             return;
         }
 
         long now = System.nanoTime();
-
-        double rawDt =
-                (now - lastNs) * 1e-9;
-
+        double dt = (now - lastNs) * 1e-9;
         lastNs = now;
-
-        boolean validDt =
-                Double.isFinite(rawDt)
-                        && rawDt > 0.001
-                        && rawDt <= 0.15;
-
-        double dt = validDt ? rawDt : 0.02;
-
-        // ======================================
-        // 1. PEDRO HEADING
-        // ======================================
-
-        double heading = drive.getHeadingDegrees();
-
-        if (!Double.isFinite(heading)) {
-
-            turret.setVelocityFeedforward(0);
-            turret.update();
-
-            status = "INVALID_HEADING";
-            return;
+        if (!Double.isFinite(dt) || dt <= 0.001 || dt > 0.15) {
+            dt = 0.02;
         }
 
-        double headingStep =
-                angleDelta(
-                        heading,
-                        lastHeading
+        int currentTag = vision.getSelectedTag();
+        if (currentTag != selectedTag) {
+            selectedTag = currentTag;
+            visionOffset = 0.0;
+        }
+
+        double[] targetCoords = targetFor(selectedTag);
+
+        // ====================================
+        // 1. CÁLCULO ABSOLUTO (PEDRO PATHING) + FEEDFORWARD
+        // ====================================
+        double pedroTargetAngle = turret.getAngle();
+        double desiredFeedforwardDegS = 0.0;
+
+        if (targetCoords != null && (mode == Mode.COMBINED || mode == Mode.PEDRO_ONLY)) {
+            double robotX = drive.getX();
+            double robotY = drive.getY();
+            double robotHeading = drive.getHeadingDegrees();
+
+            if (Double.isFinite(robotX) && Double.isFinite(robotY) && Double.isFinite(robotHeading)) {
+                double absoluteFieldAngle = Math.toDegrees(
+                        Math.atan2(targetCoords[1] - robotY, targetCoords[0] - robotX)
                 );
 
-        lastHeading = heading;
+                double relativeTarget = TURRET_DIRECTION_SIGN * (absoluteFieldAngle - robotHeading);
+                pedroTargetAngle = normalizeAngleToCurrent(relativeTarget, turret.getAngle());
 
-        boolean usePedro =
-                mode == Mode.PEDRO_ONLY
-                        || mode == Mode.COMBINED;
+                // Velocidad angular del chasis (grados/seg)
+                if (Double.isFinite(lastRobotHeading)) {
+                    double deltaHeading = robotHeading - lastRobotHeading;
+                    if (deltaHeading > 180.0) deltaHeading -= 360.0;
+                    if (deltaHeading < -180.0) deltaHeading += 360.0;
 
-        boolean validHeadingStep =
-                validDt
-                        && Math.abs(headingStep)
-                        <= MAX_HEADING_STEP;
-
-        double measuredChassisRate = 0;
-
-        if (usePedro && validHeadingStep) {
-
-            double correction =
-                    HEADING_SIGN * headingStep;
-
-            baseTarget += correction;
-
-            measuredChassisRate = Range.clip(
-                    correction / dt,
-                    -400,
-                    400
-            );
-        }
-
-        double rateAlpha =
-                1 - Math.exp(
-                        -dt / Math.max(
-                                0.005,
-                                RATE_FILTER_S
-                        )
-                );
-
-        chassisRate += rateAlpha
-                * (
-                measuredChassisRate
-                        - chassisRate
-        );
-
-        if (!usePedro) {
-            chassisRate = 0;
-        }
-
-        // ======================================
-        // 2. PEDRO POSITION
-        // ======================================
-
-        int tag = vision.getSelectedTag();
-
-        if (tag != lastTag) {
-
-            lastTag = tag;
-            lastBearing = currentBearing(tag);
-
-            filteredTx = Double.NaN;
-
-            lastProcessedFrame =
-                    vision.getFrameSequence();
-
-            lastFrameNs = 0;
-
-        } else {
-
-            double bearing =
-                    currentBearing(tag);
-
-            if (usePedro
-                    && validDt
-                    && Double.isFinite(bearing)
-                    && Double.isFinite(lastBearing)) {
-
-                double step =
-                        angleDelta(
-                                bearing,
-                                lastBearing
-                        );
-
-                if (Math.abs(step)
-                        <= MAX_HEADING_STEP) {
-
-                    baseTarget += Range.clip(
-                            -step * POSITION_GAIN,
-                            -MAX_POSITION_STEP,
-                            MAX_POSITION_STEP
-                    );
+                    double rawChassisVel = deltaHeading / dt;
+                    filteredChassisAngVel = (0.7 * filteredChassisAngVel) + (0.3 * rawChassisVel);
                 }
-            }
+                lastRobotHeading = robotHeading;
 
-            lastBearing = bearing;
+                // Compensar el giro del chasis en sentido opuesto
+                desiredFeedforwardDegS = -TURRET_DIRECTION_SIGN * filteredChassisAngVel;
+            }
+        } else {
+            lastRobotHeading = Double.NaN;
+            filteredChassisAngVel = 0.0;
         }
 
-        // ======================================
-        // 3. LIMELIGHT
-        // ======================================
-
-        boolean useVision =
-                mode == Mode.VISION_ONLY
-                        || mode == Mode.COMBINED;
-
-        visionRate = 0;
-
-        if (useVision) {
-
-            long frame =
-                    vision.getFrameSequence();
-
-            boolean freshFrame =
-                    vision.isNewFrame()
-                            && frame != lastProcessedFrame;
-
-            if (freshFrame) {
-
-                lastProcessedFrame = frame;
-
-                double frameDt =
-                        lastFrameNs == 0
-                                ? 0.033
-                                : (now - lastFrameNs) * 1e-9;
-
-                lastFrameNs = now;
-
+        // ====================================
+        // 2. OFFSET SUAVE DE VISIÓN (LIMELIGHT)
+        // ====================================
+        if (mode == Mode.COMBINED) {
+            if (vision.isResultValid() && vision.hasTarget()) {
                 double tx = vision.getTx();
-                double age = vision.getAgeMs();
 
-                boolean validVision =
-                        vision.hasTarget()
-                                && Double.isFinite(tx)
-                                && Double.isFinite(age)
-                                && age >= 0
-                                && age <= MAX_AGE_MS
-                                && Math.abs(tx) <= MAX_TX;
-
-                if (validVision) {
-
-                    lastValidVisionNs = now;
-
-                    double alpha =
-                            Math.abs(tx) > TX_NEAR_DEG
-                                    ? TX_ALPHA_FAR
-                                    : TX_ALPHA_NEAR;
-
-                    if (!Double.isFinite(filteredTx)) {
-
-                        filteredTx = tx;
-
-                    } else {
-
-                        filteredTx += alpha
-                                * (tx - filteredTx);
-                    }
-
-                    double absTx =
-                            Math.abs(filteredTx);
-
-                    double error = 0;
-
-                    if (absTx > TX_DEADBAND) {
-
-                        error =
-                                Math.signum(filteredTx)
-                                        * (
-                                        absTx - TX_DEADBAND
-                                );
-                    }
-
-                    double gain =
-                            visionGain(
-                                    Math.abs(error)
-                            );
-
-                    double correction =
-                            TX_SIGN * gain * error;
-
-                    correction = Range.clip(
-                            correction,
-                            -MAX_CORRECTION_PER_FRAME,
-                            MAX_CORRECTION_PER_FRAME
-                    );
-
-                    double motorLag =
-                            baseTarget - turret.getAngle();
-
-                    if (Math.abs(motorLag)
-                            > MAX_MOTOR_LAG
-                            && Math.signum(motorLag)
-                            == Math.signum(correction)) {
-
-                        correction = 0;
-                        status = "VISION_LAG_LIMIT";
-
-                    } else if (Math.abs(error)
-                            < 0.001) {
-
-                        status = "CENTERED";
-
-                    } else {
-
-                        status = "VISION_CORRECTING";
-                    }
-
-                    if (frameDt > 0
-                            && frameDt <= MAX_FRAME_GAP_S) {
-
-                        baseTarget += correction;
-
-                        visionRate =
-                                correction / frameDt;
-
-                    } else {
-
-                        status = "FRAME_GAP";
-                    }
-
+                if (Double.isFinite(tx) && Math.abs(tx) > TX_DEADBAND) {
+                    double correctionStep = Math.signum(tx) * VISION_OFFSET_SPEED * dt;
+                    visionOffset += (TX_SIGN * correctionStep);
+                    visionOffset = Range.clip(visionOffset, -MAX_VISION_OFFSET, MAX_VISION_OFFSET);
+                    status = "TRACKING_FUSED";
                 } else {
-
-                    filteredTx = Double.NaN;
-                    status = "NO_VALID_TAG";
+                    status = "LOCKED_CENTER";
                 }
-            }
-
-            if (lastValidVisionNs == 0) {
-
-                if (!freshFrame) {
-                    status = "WAITING_FOR_FRAME";
-                }
-
             } else {
-
-                double lostSeconds =
-                        (now - lastValidVisionNs)
-                                * 1e-9;
-
-                if (lostSeconds > LOST_HOLD_S) {
-
-                    filteredTx = Double.NaN;
-                    status = "NO_TAG";
-                }
+                status = "PEDRO_COASTING";
             }
 
-        } else {
+            baseTarget = pedroTargetAngle + visionOffset;
 
-            filteredTx = Double.NaN;
+        } else if (mode == Mode.PEDRO_ONLY) {
+            visionOffset = 0.0;
+            baseTarget = pedroTargetAngle;
             status = "PEDRO_ONLY";
+
+        } else if (mode == Mode.VISION_ONLY) {
+            visionOffset = 0.0;
+            if (vision.isResultValid() && vision.hasTarget()) {
+                double tx = vision.getTx();
+                if (Double.isFinite(tx) && Math.abs(tx) > TX_DEADBAND) {
+                    baseTarget = turret.getAngle() + (TX_SIGN * tx * 0.6);
+                    status = "VISION_TRACKING";
+                } else {
+                    baseTarget = turret.getAngle();
+                    status = "VISION_CENTERED";
+                }
+            } else {
+                baseTarget = turret.getAngle();
+                status = "VISION_NO_TAG";
+            }
         }
 
-        // ======================================
-        // 4. ANGULO FISICO SEGURO
-        // ======================================
-
-        double min = TurretSubsystemV4.MIN_ANGLE_DEG;
-        double max = TurretSubsystemV4.MAX_ANGLE_DEG;
-
-        double physicalTarget =
-                choosePhysicalTarget(baseTarget);
-
-        // Mantener el angulo virtual acotado
-        // numericamente, sin perder direccion.
-        while (baseTarget - physicalTarget > 540) {
-            baseTarget -= 360;
+        // ====================================
+        // 3. LÍMITES MECÁNICOS (PROTECCIÓN DE CABLES)
+        // ====================================
+        if (baseTarget < TurretSubsystemV4.MIN_ANGLE_DEG || baseTarget > TurretSubsystemV4.MAX_ANGLE_DEG) {
+            status = "OUT_OF_RANGE_LIMIT";
+            desiredFeedforwardDegS = 0.0;
         }
 
-        while (baseTarget - physicalTarget < -540) {
-            baseTarget += 360;
-        }
-
-        // ======================================
-        // 5. PERFIL DE MOVIMIENTO
-        // ======================================
-
-        double remaining =
-                physicalTarget - smoothTarget;
-
-        double maxSpeed =
-                Math.max(1, MAX_SPEED);
-
-        double accel =
-                Math.max(1, MAX_ACCEL);
-
-        double brakingSpeed =
-                Math.sqrt(
-                        2 * accel
-                                * Math.abs(remaining)
-                );
-
-        double requestedVelocity =
-                Math.signum(remaining)
-                        * Math.min(
-                        maxSpeed,
-                        brakingSpeed
-                );
-
-        double maxChange = accel * dt;
-
-        smoothVelocity += Range.clip(
-                requestedVelocity - smoothVelocity,
-                -maxChange,
-                maxChange
+        baseTarget = Range.clip(
+                baseTarget,
+                TurretSubsystemV4.MIN_ANGLE_DEG,
+                TurretSubsystemV4.MAX_ANGLE_DEG
         );
 
-        double movement =
-                smoothVelocity * dt;
-
-        if (Math.abs(movement)
-                >= Math.abs(remaining)
-                && Math.signum(movement)
-                == Math.signum(remaining)) {
-
-            smoothTarget = physicalTarget;
-            smoothVelocity = 0;
-
-        } else {
-
-            smoothTarget += movement;
-        }
-
-        smoothTarget = Range.clip(
-                smoothTarget,
-                min,
-                max
-        );
-
-        if ((smoothTarget >= max
-                && smoothVelocity > 0)
-                || (smoothTarget <= min
-                && smoothVelocity < 0)) {
-
-            smoothVelocity = 0;
-        }
-
-        // ======================================
-        // 6. FEEDFORWARD
-        // ======================================
-
-        double ffAlpha =
-                1 - Math.exp(
-                        -dt / Math.max(
-                                0.005,
-                                FF_FILTER_S
-                        )
-                );
-
-        filteredFF += ffAlpha
-                * (
-                smoothVelocity
-                        - filteredFF
-        );
-
-        if ((smoothTarget >= max
-                && filteredFF > 0)
-                || (smoothTarget <= min
-                && filteredFF < 0)) {
-
-            filteredFF = 0;
-        }
-
-        // ======================================
-        // 7. MOTOR
-        // ======================================
-
-        turret.setVelocityFeedforward(filteredFF);
-        turret.setTarget(smoothTarget);
+        // ====================================
+        // 4. ACTUALIZAR MOTOR
+        // ====================================
+        turret.setVelocityFeedforward(desiredFeedforwardDegS);
+        turret.setTarget(baseTarget);
         turret.update();
     }
 }

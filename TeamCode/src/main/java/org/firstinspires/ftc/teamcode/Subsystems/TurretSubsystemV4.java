@@ -1,4 +1,3 @@
-
 package org.firstinspires.ftc.teamcode.Subsystems;
 
 import com.qualcomm.robotcore.hardware.DcMotor;
@@ -9,8 +8,10 @@ import com.qualcomm.robotcore.util.Range;
 
 public class TurretSubsystemV4 {
 
-    public static double MIN_ANGLE_DEG = -75.0;
-    public static double MAX_ANGLE_DEG = 235.0;
+    // Límites calibrados con 5° de margen de seguridad para cables:
+    // Derecha física = -167° (seguro: -162°) | Izquierda física = +73.57° (seguro: +68.5°)
+    public static double MIN_ANGLE_DEG = -88.0;
+    public static double MAX_ANGLE_DEG = 192.5;
 
     public static double TICKS_PER_REV = 8192.0;
     public static double GEAR_RATIO = 95.0 / 15.0;
@@ -18,23 +19,17 @@ public class TurretSubsystemV4 {
     public static double ENCODER_SIGN = 1.0;
     public static double MOTOR_SIGN = 1.0;
 
-    // PID: comenzar conservador para evitar oscilacion
-    public double kP = 0.035;
-    public double kD = 0.0015;
+    // PID ajustado para seguimiento rápido sin oscilaciones
+    public double kP = 0.065;
+    public double kD = 0.0035;
     public double kS = 0.0;
 
-    // Se puede aumentar despues de verificar
-    // que el feedforward tiene el signo correcto
-    public double maxPower = 0.85;
+    public double maxPower = 1.0;
+    public double toleranceDeg = 1.0;
 
-    public double toleranceDeg = 0.8;
-
-    // Feedforward:
-    // potencia por grado/segundo solicitado
-    // Valor inicial experimental
-    public double kV = 0.0012;
-
-    public double maxFeedforwardPower = 0.40;
+    // Feedforward ajustado para goBILDA 435 RPM + reducción 95/15 (~412 deg/s máx)
+    public double kV = 0.0034;
+    public double maxFeedforwardPower = 0.85;
 
     private static final double STALL_TIMEOUT_S = 1.5;
     private static final double STALL_MIN_POWER = 0.18;
@@ -47,7 +42,6 @@ public class TurretSubsystemV4 {
 
     private boolean enabled = false;
     private boolean fault = false;
-
     private String faultReason = "NONE";
 
     private double targetDeg = 0.0;
@@ -62,27 +56,12 @@ public class TurretSubsystemV4 {
     private double stallReferenceAngle = 0.0;
 
     public TurretSubsystemV4(HardwareMap hardwareMap) {
+        motor = hardwareMap.get(DcMotorEx.class, "turret");
+        encoder = hardwareMap.get(DcMotorEx.class, "mfl");
 
-        motor = hardwareMap.get(
-                DcMotorEx.class, "turret"
-        );
-
-        encoder = hardwareMap.get(
-                DcMotorEx.class, "mfl"
-        );
-
-        motor.setDirection(
-                DcMotorSimple.Direction.REVERSE
-        );
-
-        motor.setZeroPowerBehavior(
-                DcMotor.ZeroPowerBehavior.BRAKE
-        );
-
-        motor.setMode(
-                DcMotor.RunMode.RUN_WITHOUT_ENCODER
-        );
-
+        motor.setDirection(DcMotorSimple.Direction.REVERSE);
+        motor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        motor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         motor.setPower(0);
 
         zeroTicks = encoder.getCurrentPosition();
@@ -95,14 +74,9 @@ public class TurretSubsystemV4 {
     }
 
     public double getAngle() {
-
-        double ticks =
-                encoder.getCurrentPosition() - zeroTicks;
-
-        double ticksPerDegree =
-                TICKS_PER_REV * GEAR_RATIO / 360.0;
-
-        return ENCODER_SIGN * ticks / ticksPerDegree;
+        double ticks = encoder.getCurrentPosition() - zeroTicks;
+        double ticksPerDegree = (TICKS_PER_REV * GEAR_RATIO) / 360.0;
+        return ENCODER_SIGN * (ticks / ticksPerDegree);
     }
 
     public double getTarget() {
@@ -137,102 +111,74 @@ public class TurretSubsystemV4 {
         return faultReason;
     }
 
-    public void setTarget(double angleDeg) {
-
-        if (!Double.isFinite(angleDeg)) {
-            return;
-        }
-
-        targetDeg = Range.clip(
-                angleDeg,
-                MIN_ANGLE_DEG,
-                MAX_ANGLE_DEG
-        );
+    public boolean isAtLimit() {
+        double angle = getAngle();
+        return angle <= (MIN_ANGLE_DEG + 1.5) || angle >= (MAX_ANGLE_DEG - 1.5);
     }
 
-    public void setVelocityFeedforward(
-            double degreesPerSecond) {
+    // Devuelve true SOLO cuando la torreta está alineada al objetivo y no está topada en cables
+    public boolean isReadyToShoot(double maxErrorDeg) {
+        return enabled && !fault && Math.abs(getError()) <= maxErrorDeg;
+    }
 
+    public void setTarget(double angleDeg) {
+        if (!Double.isFinite(angleDeg)) return;
+        targetDeg = Range.clip(angleDeg, MIN_ANGLE_DEG, MAX_ANGLE_DEG);
+    }
+
+    public void setVelocityFeedforward(double degreesPerSecond) {
         if (!Double.isFinite(degreesPerSecond)) {
             velocityFeedforwardDegS = 0;
             return;
         }
-
-        velocityFeedforwardDegS = Range.clip(
-                degreesPerSecond, -400, 400
-        );
+        velocityFeedforwardDegS = Range.clip(degreesPerSecond, -450, 450);
     }
 
     public void enableHold() {
-
-        if (fault) {
-            return;
-        }
-
-        targetDeg = Range.clip(
-                getAngle(),
-                MIN_ANGLE_DEG,
-                MAX_ANGLE_DEG
-        );
-
+        if (fault) return;
+        targetDeg = Range.clip(getAngle(), MIN_ANGLE_DEG, MAX_ANGLE_DEG);
         velocityFeedforwardDegS = 0;
         enabled = true;
-
         stallStartNs = System.nanoTime();
         stallReferenceAngle = getAngle();
     }
 
     public void disable() {
-
         enabled = false;
         velocityFeedforwardDegS = 0;
         applyPower(0);
     }
 
     public void clearFault() {
-
         disable();
-
         fault = false;
         faultReason = "NONE";
-
-        targetDeg = Range.clip(
-                getAngle(),
-                MIN_ANGLE_DEG,
-                MAX_ANGLE_DEG
-        );
-
+        targetDeg = Range.clip(getAngle(), MIN_ANGLE_DEG, MAX_ANGLE_DEG);
         stallStartNs = System.nanoTime();
         stallReferenceAngle = getAngle();
     }
 
     private void setFault(String reason) {
-
         fault = true;
         faultReason = reason;
         disable();
     }
 
     private void applyPower(double power) {
-
         appliedPower = Range.clip(
                 MOTOR_SIGN * power,
                 -Math.abs(maxPower),
                 Math.abs(maxPower)
         );
-
         motor.setPower(appliedPower);
     }
 
     public void update() {
-
         long now = System.nanoTime();
-
         double dt = (now - lastUpdateNs) / 1e9;
         lastUpdateNs = now;
 
-        if (!Double.isFinite(dt) ||
-                dt <= 0 || dt > 0.15) {
+        if (!Double.isFinite(dt) || dt <= 0 || dt > 0.15) {
             dt = 0.02;
         }
 
@@ -243,23 +189,17 @@ public class TurretSubsystemV4 {
             return;
         }
 
-        double rawVelocity =
-                (angle - lastAngle) / dt;
-
+        double rawVelocity = (angle - lastAngle) / dt;
         lastAngle = angle;
 
-        velocityDegS =
-                0.65 * velocityDegS
-                        + 0.35 * rawVelocity;
+        velocityDegS = (0.65 * velocityDegS) + (0.35 * rawVelocity);
 
         if (!enabled || fault) {
             applyPower(0);
             return;
         }
 
-        if (angle < MIN_ANGLE_DEG - 2.0 ||
-                angle > MAX_ANGLE_DEG + 2.0) {
-
+        if (angle < (MIN_ANGLE_DEG - 4.0) || angle > (MAX_ANGLE_DEG + 4.0)) {
             setFault("ANGLE_OUT_OF_RANGE");
             return;
         }
@@ -269,20 +209,22 @@ public class TurretSubsystemV4 {
         // =====================================
         // PID
         // =====================================
-
-        double pidPower =
-                kP * error
-                        - kD * velocityDegS;
+        double pidPower = (kP * error) - (kD * velocityDegS);
 
         // =====================================
         // VELOCITY FEEDFORWARD
         // =====================================
-
         double ffPower = Range.clip(
                 kV * velocityFeedforwardDegS,
                 -maxFeedforwardPower,
                 maxFeedforwardPower
         );
+
+        // Cortar el feedforward si ya estamos en el límite y el FF intenta empujar más allá
+        if ((angle <= MIN_ANGLE_DEG + 2.0 && ffPower < 0) ||
+                (angle >= MAX_ANGLE_DEG - 2.0 && ffPower > 0)) {
+            ffPower = 0;
+        }
 
         double command = pidPower + ffPower;
 
@@ -290,58 +232,39 @@ public class TurretSubsystemV4 {
             command += Math.signum(error) * kS;
         }
 
-        // No apagar el feedforward si
-        // el objetivo se esta moviendo.
         if (Math.abs(error) <= toleranceDeg &&
                 Math.abs(velocityFeedforwardDegS) < 3.0 &&
                 Math.abs(velocityDegS) < 8.0) {
-
             command = 0;
         }
 
-        command = Range.clip(
-                command,
-                -Math.abs(maxPower),
-                Math.abs(maxPower)
-        );
+        command = Range.clip(command, -Math.abs(maxPower), Math.abs(maxPower));
 
         // =====================================
-        // LIMITES
+        // LÍMITES MECÁNICOS
         // =====================================
-
-        if (angle <= MIN_ANGLE_DEG &&
-                command < 0) {
+        if (angle <= MIN_ANGLE_DEG && command < 0) {
             command = 0;
         }
 
-        if (angle >= MAX_ANGLE_DEG &&
-                command > 0) {
+        if (angle >= MAX_ANGLE_DEG && command > 0) {
             command = 0;
         }
 
         // =====================================
-        // STALL
+        // DETECCIÓN DE STALL (ATASCO)
         // =====================================
-
         if (Math.abs(command) >= STALL_MIN_POWER &&
                 Math.abs(error) >= STALL_MIN_ERROR) {
 
-            if (Math.abs(
-                    angle - stallReferenceAngle
-            ) >= STALL_MIN_PROGRESS) {
-
+            if (Math.abs(angle - stallReferenceAngle) >= STALL_MIN_PROGRESS) {
                 stallReferenceAngle = angle;
                 stallStartNs = now;
-
-            } else if ((now - stallStartNs) / 1e9
-                    >= STALL_TIMEOUT_S) {
-
+            } else if ((now - stallStartNs) / 1e9 >= STALL_TIMEOUT_S) {
                 setFault("STALL");
                 return;
             }
-
         } else {
-
             stallReferenceAngle = angle;
             stallStartNs = now;
         }
