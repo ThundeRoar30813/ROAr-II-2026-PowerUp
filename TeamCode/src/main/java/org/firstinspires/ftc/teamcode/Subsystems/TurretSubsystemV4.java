@@ -20,7 +20,7 @@ public class TurretSubsystemV4 {
     public static double MOTOR_SIGN = 1.0;
 
     // PID ajustado para seguimiento rápido sin oscilaciones
-    public double kP = 0.065;
+    public double kP = 0.045;
     public double kD = 0.0035;
     public double kS = 0.0;
 

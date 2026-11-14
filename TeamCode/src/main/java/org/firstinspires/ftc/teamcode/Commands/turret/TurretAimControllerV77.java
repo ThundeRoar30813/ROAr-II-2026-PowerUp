@@ -23,8 +23,8 @@ public class TurretAimControllerV77 {
     public static double TAG35_X = 55.0;
     public static double TAG35_Y = 57.0;
 
-    public static double TAG37_X = 62.0;
-    public static double TAG37_Y = 57.0;
+    public static double TAG37_X = 61.897345045022966;
+    public static double TAG37_Y = 58.16307045879971;
 
     // Signos de dirección
     public static double TURRET_DIRECTION_SIGN = -1.0; // Invierte el sentido relativo respecto a Pedro Pathing

@@ -8,7 +8,7 @@ import com.qualcomm.robotcore.util.Range;
 
 public class ShooterSubsystem {
 
-    public static double DEFAULT_TARGET_TPS = 800.0;
+    public static double DEFAULT_TARGET_TPS = 1200.0;
     public static double MAX_TARGET_TPS = 6000.0;
 
     // Ganancias iniciales para control por software.
@@ -16,7 +16,7 @@ public class ShooterSubsystem {
     public double kP = 0.0004;
     public double kI = 0.0;
     public double kD = 0.0;
-    public double kF = 0.00015;
+    public double kF = 0.000450;
 
     public double integralLimit = 5000.0;
 
