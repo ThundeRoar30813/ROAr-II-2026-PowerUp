@@ -22,7 +22,7 @@ public class rampa extends OpMode {
 
     // POSICIONES OBJETIVO CALIBRADAS
     private static final int TICKS_ARRIBA = 0;
-    private static final int TICKS_OBJETIVO = 6484; // Tu medida exacta (135.57 deg)
+    private static final int TICKS_OBJETIVO = 6184; // Tu medida exacta (135.57 deg)
 
     // PARAMETROS DEL CONTROL AUTOMATICO (Proporcional)
     private static final double KP = 0.0008;        // Suaviza la llegada para no pasarse

@@ -2,7 +2,6 @@
 package org.firstinspires.ftc.teamcode.Subsystems;
 
 import com.qualcomm.robotcore.hardware.HardwareMap;
-
 import com.pedropathing.follower.Follower;
 import com.pedropathing.math.Pose;
 
@@ -13,18 +12,23 @@ public class DriveSubsystem {
     private final Follower follower;
 
     public DriveSubsystem(HardwareMap hardwareMap) {
-        follower = Constants.create(hardwareMap);
+        this(Constants.create(hardwareMap));
+    }
+
+    public DriveSubsystem(Follower follower) {
+        if (follower == null) {
+            throw new IllegalArgumentException("Follower null");
+        }
+        this.follower = follower;
     }
 
     public void update() {
         follower.update();
     }
 
-    public void drive(
-            double forward,
-            double strafe,
-            double turn) {
-
+    public void drive(double forward,
+                      double strafe,
+                      double turn) {
         follower.manual(forward, strafe, turn);
     }
 
@@ -33,17 +37,9 @@ public class DriveSubsystem {
     }
 
     public void setInitialPose(
-            double x,
-            double y,
-            double headingDegrees) {
-
-        follower.setPose(
-                new Pose(
-                        x,
-                        y,
-                        Math.toRadians(headingDegrees)
-                )
-        );
+            double x, double y, double headingDegrees) {
+        follower.setPose(new Pose(
+                x, y, Math.toRadians(headingDegrees)));
     }
 
     public void setPose(Pose pose) {
@@ -63,9 +59,7 @@ public class DriveSubsystem {
     }
 
     public double getHeadingDegrees() {
-        return Math.toDegrees(
-                follower.pose().heading()
-        );
+        return Math.toDegrees(follower.pose().heading());
     }
 
     public double getHeadingRadians() {
