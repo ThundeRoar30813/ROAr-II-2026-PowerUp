@@ -37,7 +37,15 @@ public class TurretAimControllerV77 {
     public static double TAG37_Y = 57.16307045879971;
 
     // ==========================================
-    // AJUSTES ORIGINALES
+    // OFFSET ANGULAR PARA ESQUINA HIGH
+    // ==========================================
+    // Si el hueco real del High está ligeramente desplazado del Tag,
+    // ajusta estos grados (+ o -) para que apunte al centro real.
+    public static double TAG37_AIM_OFFSET_DEG = 0.0;
+    public static double TAG35_AIM_OFFSET_DEG = 0.0;
+
+    // ==========================================
+    // AJUSTES DE CONTROL
     // ==========================================
 
     public static double TURRET_DIRECTION_SIGN = -1.0;
@@ -46,8 +54,8 @@ public class TurretAimControllerV77 {
     public static double TURRET_FIELD_ZERO_DEG = 0.0;
 
     public static double TX_DEADBAND = 1.5;
-    public static double VISION_OFFSET_SPEED = 1.5;
-    public static double MAX_VISION_OFFSET = 12.0;
+    public static double VISION_OFFSET_SPEED = 4.5;
+    public static double MAX_VISION_OFFSET = 20.0;
 
     public static double VISION_ONLY_KP = 0.60;
     public static double MAX_VISION_AGE_MS = 250.0;
@@ -84,7 +92,7 @@ public class TurretAimControllerV77 {
     }
 
     // ==========================================
-    // COORDENADAS
+    // COORDENADAS Y OFFSET POR TAG
     // ==========================================
 
     private double[] targetFor(int id) {
@@ -109,6 +117,15 @@ public class TurretAimControllerV77 {
             default:
                 return null;
         }
+    }
+
+    private double getAimOffsetFor(int id) {
+        if (id == 37) {
+            return TAG37_AIM_OFFSET_DEG;
+        } else if (id == 35) {
+            return TAG35_AIM_OFFSET_DEG;
+        }
+        return 0.0;
     }
 
     // ==========================================
@@ -301,6 +318,7 @@ public class TurretAimControllerV77 {
         double currentAngle = turret.getAngle();
 
         double[] target = targetFor(selectedTag);
+        double aimOffsetDeg = getAimOffsetFor(selectedTag);
 
         validPedroTarget = false;
         validVisionTarget = usableVision();
@@ -329,9 +347,8 @@ public class TurretAimControllerV77 {
 
                 pedroTarget =
                         TURRET_DIRECTION_SIGN *
-                                (fieldAngle
-                                        - heading
-                                        - TURRET_FIELD_ZERO_DEG);
+                                (fieldAngle - heading - TURRET_FIELD_ZERO_DEG)
+                                + aimOffsetDeg;
 
                 if (Double.isFinite(lastHeading)) {
 
@@ -348,13 +365,13 @@ public class TurretAimControllerV77 {
                     filteredHeadingVelocity =
                             0.7 * filteredHeadingVelocity
                                     + 0.3 * headingVelocity;
+
                 }
 
                 lastHeading = heading;
 
                 velocityFF =
-                        -TURRET_DIRECTION_SIGN
-                                * filteredHeadingVelocity;
+                        -TURRET_DIRECTION_SIGN * filteredHeadingVelocity;
             }
         }
 
@@ -398,9 +415,8 @@ public class TurretAimControllerV77 {
 
                     desired =
                             currentAngle
-                                    + TX_SIGN
-                                    * visionTx
-                                    * VISION_ONLY_KP;
+                                    + TX_SIGN * visionTx * VISION_ONLY_KP
+                                    + aimOffsetDeg;
 
                     status = "VISION_TRACKING";
 
@@ -429,11 +445,14 @@ public class TurretAimControllerV77 {
 
                     if (Math.abs(tx) > TX_DEADBAND) {
 
+                        double stepSpeed = Range.clip(
+                                Math.abs(tx) * 0.8,
+                                1.5,
+                                12.0
+                        );
+
                         visionOffset +=
-                                TX_SIGN
-                                        * Math.signum(tx)
-                                        * VISION_OFFSET_SPEED
-                                        * dt;
+                                TX_SIGN * Math.signum(tx) * stepSpeed * dt;
 
                         visionOffset = Range.clip(
                                 visionOffset,

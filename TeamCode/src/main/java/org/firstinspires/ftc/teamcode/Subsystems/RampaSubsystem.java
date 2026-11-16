@@ -1,252 +1,99 @@
-
 package org.firstinspires.ftc.teamcode.Subsystems;
 
+import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.DcMotor;
-import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.HardwareMap;
+import com.qualcomm.robotcore.util.Range;
 
 public class RampaSubsystem {
 
-    // ==========================================
-    // CONFIGURACION
-    // ==========================================
+    private CRServo rampaServo;
+    private DcMotor encoderMotor; // Usando el puerto mbl como encoder
 
-    public static String MOTOR_NAME = "rampa";
+    // Constantes de conversión y posiciones que ya probamos y calibramos
+    public static final double TICKS_POR_REV_ENCODER = 8192.0;
+    public static final double DIENTES_ENCODER = 12.0;
+    public static final double DIENTES_RAMPA = 26.0;
+    public static final double TICKS_POR_GRADO_RAMPA = (TICKS_POR_REV_ENCODER * (DIENTES_RAMPA / DIENTES_ENCODER)) / 360.0;
 
-    // Valores provisionales: CALIBRAR.
-    public static int UP_TICKS = 0;
-    public static int DOWN_TICKS = 500;
+    public static final int POSICION_ARRIBA = 0;
+    public static final int POSICION_OBJETIVO = 6484; // 135.57 grados
 
-    public static double MOTOR_POWER = 0.35;
+    public static final int TOLERANCIA_TICKS = 35;
+    public static final double KP = 0.0008;
+    public static final double MIN_POWER = 0.15;
+    public static final double MAX_POWER = 0.75;
 
-    public static int POSITION_TOLERANCE = 20;
-
-    public static double MOVE_TIMEOUT_S = 3.0;
-
-    // ==========================================
-    // HARDWARE
-    // ==========================================
-
-    private final DcMotorEx motor;
-
-    // ==========================================
-    // ESTADOS
-    // ==========================================
-
-    public enum State {
-        IDLE,
-        MOVING_UP,
-        MOVING_DOWN,
-        READY,
-        FAULT
-    }
-
-    private State state = State.IDLE;
-
-    private int targetTicks = 0;
-
+    private int targetTicks = POSICION_ARRIBA;
+    private int offsetTicks = 0;
     private boolean fault = false;
-    private String faultReason = "NONE";
-
-    private long movementStartNs = 0;
-
-    // ==========================================
-    // CONSTRUCTOR
-    // ==========================================
 
     public RampaSubsystem(HardwareMap hardwareMap) {
+        try {
+            rampaServo = hardwareMap.get(CRServo.class, "rampa");
+            rampaServo.setDirection(DcMotorSimple.Direction.FORWARD);
+            rampaServo.setPower(0.0);
 
-        motor = hardwareMap.get(
-                DcMotorEx.class,
-                MOTOR_NAME
-        );
-
-        motor.setDirection(
-                DcMotorSimple.Direction.FORWARD
-        );
-
-        motor.setZeroPowerBehavior(
-                DcMotor.ZeroPowerBehavior.BRAKE
-        );
-
-        // IMPORTANTE:
-        // La rampa debe iniciar fisicamente
-        // en su posicion superior.
-        motor.setMode(
-                DcMotor.RunMode.STOP_AND_RESET_ENCODER
-        );
-
-        motor.setTargetPosition(UP_TICKS);
-
-        motor.setMode(
-                DcMotor.RunMode.RUN_TO_POSITION
-        );
-
-        motor.setPower(0);
-
-        targetTicks = UP_TICKS;
-        state = State.READY;
-    }
-
-    // ==========================================
-    // MOVER A POSICION
-    // ==========================================
-
-    public void moveTo(int ticks) {
-
-        if (fault) {
-            return;
-        }
-
-        int min = Math.min(UP_TICKS, DOWN_TICKS);
-        int max = Math.max(UP_TICKS, DOWN_TICKS);
-
-        targetTicks = Math.max(
-                min,
-                Math.min(max, ticks)
-        );
-
-        motor.setTargetPosition(targetTicks);
-
-        motor.setMode(
-                DcMotor.RunMode.RUN_TO_POSITION
-        );
-
-        motor.setPower(
-                Math.abs(MOTOR_POWER)
-        );
-
-        movementStartNs = System.nanoTime();
-
-        if (targetTicks == DOWN_TICKS) {
-            state = State.MOVING_DOWN;
-        } else {
-            state = State.MOVING_UP;
-        }
-    }
-
-    // ==========================================
-    // SUBIR
-    // ==========================================
-
-    public void subir() {
-        moveTo(UP_TICKS);
-    }
-
-    // ==========================================
-    // BAJAR
-    // ==========================================
-
-    public void bajar() {
-        moveTo(DOWN_TICKS);
-    }
-
-    // ==========================================
-    // UPDATE
-    // ==========================================
-
-    public void update() {
-
-        if (fault) {
-            motor.setPower(0);
-            return;
-        }
-
-        if (state != State.MOVING_UP
-                && state != State.MOVING_DOWN) {
-            return;
-        }
-
-        int error = Math.abs(
-                targetTicks - motor.getCurrentPosition()
-        );
-
-        if (error <= POSITION_TOLERANCE) {
-
-            motor.setPower(0);
-            state = State.READY;
-            return;
-        }
-
-        double elapsed =
-                (System.nanoTime() - movementStartNs)
-                        * 1e-9;
-
-        if (elapsed >= MOVE_TIMEOUT_S) {
-
+            encoderMotor = hardwareMap.get(DcMotor.class, "mbl");
+            encoderMotor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+            encoderMotor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        } catch (Exception e) {
             fault = true;
-            faultReason = "MOVE_TIMEOUT";
-
-            motor.setPower(0);
-            state = State.FAULT;
         }
     }
 
-    // ==========================================
-    // GETTERS
-    // ==========================================
+    public void setTargetTicks(int ticks) {
+        this.targetTicks = ticks;
+    }
+
+    public int getTicksActuales() {
+        if (encoderMotor == null) return 0;
+        return encoderMotor.getCurrentPosition() - offsetTicks;
+    }
+
+    public void resetCero() {
+        if (encoderMotor != null) {
+            offsetTicks = encoderMotor.getCurrentPosition();
+            targetTicks = POSICION_ARRIBA;
+        }
+    }
 
     public boolean isReady() {
-
-        return !fault
-                && state == State.READY
-                && Math.abs(
-                targetTicks - motor.getCurrentPosition()
-        ) <= POSITION_TOLERANCE;
+        int error = targetTicks - getTicksActuales();
+        return Math.abs(error) <= TOLERANCIA_TICKS;
     }
 
     public boolean hasFault() {
         return fault;
     }
 
-    public int getTicks() {
-        return motor.getCurrentPosition();
+    public void aplicarControl() {
+        if (rampaServo == null || fault) return;
+
+        int error = targetTicks - getTicksActuales();
+        double power = 0.0;
+
+        if (Math.abs(error) <= TOLERANCIA_TICKS) {
+            power = 0.0;
+        } else {
+            double rawPower = error * KP;
+            double signo = Math.signum(rawPower);
+            double magnitud = Range.clip(Math.abs(rawPower), MIN_POWER, MAX_POWER);
+            power = signo * magnitud;
+        }
+
+        rampaServo.setPower(power);
     }
 
-    public int getTargetTicks() {
-        return targetTicks;
+    public void stop() {
+        if (rampaServo != null) {
+            rampaServo.setPower(0.0);
+        }
     }
 
     public String getStatus() {
-
-        if (fault) {
-            return "FAULT: " + faultReason;
-        }
-
-        return state.name();
-    }
-
-    public String getFaultReason() {
-        return faultReason;
-    }
-
-    // ==========================================
-    // RESET FAULT
-    // ==========================================
-
-    public void clearFault() {
-
-        motor.setPower(0);
-
-        fault = false;
-        faultReason = "NONE";
-
-        targetTicks = motor.getCurrentPosition();
-
-        state = State.READY;
-    }
-
-    // ==========================================
-    // STOP
-    // ==========================================
-
-    public void stop() {
-
-        motor.setPower(0);
-
-        if (!fault) {
-            state = State.IDLE;
-        }
+        if (fault) return "FAULT";
+        return isReady() ? "LISTO" : "MOVIENDO";
     }
 }

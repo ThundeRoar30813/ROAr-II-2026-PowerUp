@@ -1,4 +1,3 @@
-
 package org.firstinspires.ftc.teamcode.OpModes.Pruebas.torreta;
 
 import com.acmerobotics.dashboard.FtcDashboard;
@@ -12,6 +11,7 @@ import org.firstinspires.ftc.teamcode.Subsystems.DriveSubsystem;
 import org.firstinspires.ftc.teamcode.Subsystems.TurretSubsystemV4;
 import org.firstinspires.ftc.teamcode.Subsystems.IntakeSubsystem;
 import org.firstinspires.ftc.teamcode.Subsystems.ShooterSubsystem;
+import org.firstinspires.ftc.teamcode.Subsystems.ShooterInterpolation;
 import org.firstinspires.ftc.teamcode.Subsystems.HoodSubsystem;
 
 import org.firstinspires.ftc.teamcode.Commands.drive.MecanumDriveCmd;
@@ -65,6 +65,13 @@ public class BioBuzzCalibrationV4 extends OpMode {
     public static double GOAL_Y = 57.0;
 
     private static final double FIELD_HALF = 72.0;
+
+    // =========================================
+    // MODO INTERPOLACION AUTOMATICA (PRUEBA)
+    // =========================================
+
+    private boolean autoInterpEnabled = false;
+    private boolean previousAutoInterpBtn = false;
 
     // =========================================
     // GUARDAR MUESTRAS
@@ -171,7 +178,7 @@ public class BioBuzzCalibrationV4 extends OpMode {
         }
 
         telemetry.addLine("BIOBUZZ CALIBRACION V4");
-        telemetry.addLine("Chasis + Turret + Intake + Shooter + Hood");
+        telemetry.addLine("G2 A: Guardar CSV | G2 X: Auto-Interpolacion ON/OFF");
         telemetry.addLine("Verificar posicion inicial de Pedro");
         telemetry.update();
     }
@@ -225,34 +232,67 @@ public class BioBuzzCalibrationV4 extends OpMode {
         );
 
         // =====================================
-        // SHOOTER PIDF
+        // TOGGLE MODO INTERPOLACION (G2 X)
         // =====================================
 
-        shooterCmd.execute(
-                gamepad1.x,
-
-                gamepad2.right_trigger,
-                gamepad2.left_trigger,
-
-                gamepad1.dpad_up,
-                gamepad1.dpad_right,
-                gamepad1.dpad_down,
-                gamepad1.dpad_left,
-
-                gamepad2.right_bumper,
-                gamepad2.left_bumper
-        );
+        boolean autoInterpBtn = gamepad2.x;
+        if (autoInterpBtn && !previousAutoInterpBtn) {
+            autoInterpEnabled = !autoInterpEnabled;
+        }
+        previousAutoInterpBtn = autoInterpBtn;
 
         // =====================================
-        // HOOD
+        // SHOOTER Y HOOD (MANUAL VS AUTO-INTERP)
         // =====================================
 
-        hoodCmd.execute(
-                gamepad2.dpad_up,
-                gamepad2.dpad_down,
-                gamepad2.dpad_left,
-                gamepad2.dpad_right
-        );
+        ShooterInterpolation.Result interpResult =
+                ShooterInterpolation.calculate(x, y);
+
+        if (autoInterpEnabled) {
+            // Permite encender/apagar el shooter con G1 X, pero TPS y Hood vienen de (X, Y)
+            if (gamepad1.x) {
+                // Usa shooterCmd solo para toggle/update sin pisar TPS
+                shooterCmd.execute(
+                        true, 0, 0,
+                        false, false, false, false,
+                        false, false
+                );
+            } else {
+                shooterCmd.execute(
+                        false, 0, 0,
+                        false, false, false, false,
+                        false, false
+                );
+            }
+
+            shooter.setTargetTPS(interpResult.tps);
+            shooter.update();
+            hood.setIndex(interpResult.hoodLevel - 1);
+
+        } else {
+            // Modo calibración manual completo
+            shooterCmd.execute(
+                    gamepad1.x,
+
+                    gamepad2.right_trigger,
+                    gamepad2.left_trigger,
+
+                    gamepad1.dpad_up,
+                    gamepad1.dpad_right,
+                    gamepad1.dpad_down,
+                    gamepad1.dpad_left,
+
+                    gamepad2.right_bumper,
+                    gamepad2.left_bumper
+            );
+
+            hoodCmd.execute(
+                    gamepad2.dpad_up,
+                    gamepad2.dpad_down,
+                    gamepad2.dpad_left,
+                    gamepad2.dpad_right
+            );
+        }
 
         // =====================================
         // DISTANCIA CALCULADA POR PEDRO
@@ -294,12 +334,20 @@ public class BioBuzzCalibrationV4 extends OpMode {
 
         telemetry.addLine("=== BIOBUZZ CALIBRACION V4 ===");
 
-        telemetry.addData("Pedro X", "%.2f", x);
-        telemetry.addData("Pedro Y", "%.2f", y);
+        telemetry.addData("Modo Shooter",
+                autoInterpEnabled ? "AUTO INTERPOLACION (X,Y)" : "MANUAL TUNING");
+
+        telemetry.addData("Pedro X / Y", "%.2f / %.2f", x, y);
         telemetry.addData("Heading", "%.2f", heading);
 
-        telemetry.addData("Distancia calculada", "%.1f cm",
+        telemetry.addData("Distancia Goal", "%.1f cm",
                 distanceCm);
+
+        telemetry.addData("Interp Sugerida",
+                "TPS: %.0f | Hood: %d (Dist vecino: %.1f in)",
+                interpResult.tps,
+                interpResult.hoodLevel,
+                interpResult.nearestDistance);
 
         telemetry.addLine("===== TURRET =====");
 
@@ -326,6 +374,9 @@ public class BioBuzzCalibrationV4 extends OpMode {
 
         telemetry.addData("Turret Error",
                 "%.2f", turret.getError());
+
+        telemetry.addData("Vision Offset",
+                "%.2f deg", aim.getVisionOffset());
 
         telemetry.addData("Turret Ready",
                 turret.isReadyToShoot(2.5));
@@ -423,6 +474,7 @@ public class BioBuzzCalibrationV4 extends OpMode {
 
         drawBioBuzzField(packet);
 
+        packet.put("Modo Interp", autoInterpEnabled);
         packet.put("Pedro X", x);
         packet.put("Pedro Y", y);
         packet.put("Heading", heading);
@@ -438,6 +490,9 @@ public class BioBuzzCalibrationV4 extends OpMode {
 
         packet.put("Turret Error",
                 turret.getError());
+
+        packet.put("Vision Offset",
+                aim.getVisionOffset());
 
         packet.put("Limelight Tx",
                 vision.getTx());
@@ -592,6 +647,19 @@ public class BioBuzzCalibrationV4 extends OpMode {
         c.fillCircle(72, 24, 2.3);
         c.fillCircle(-24, 72, 2.3);
         c.fillCircle(24, -72, 2.3);
+
+        // PUNTOS YA CALIBRADOS EN SHOOTER INTERPOLATION (VERDE CLARO)
+        c.setFill("#4ADE80");
+        double[][] calibratedPoints = {
+                {12, 12}, {24, 12}, {36, 12},
+                {12, 24}, {24, 24}, {36, 24},
+                {12, 36}, {24, 36}, {36, 36},
+                {60, 28}, {60, 25}, {60, 15},
+                {57, 10}, {54, 4}
+        };
+        for (double[] pt : calibratedPoints) {
+            c.fillCircle(pt[0] - FIELD_HALF, pt[1] - FIELD_HALF, 1.5);
+        }
     }
 
     // =========================================

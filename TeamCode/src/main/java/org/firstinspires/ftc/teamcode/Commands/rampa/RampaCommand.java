@@ -1,4 +1,3 @@
-
 package org.firstinspires.ftc.teamcode.Commands.rampa;
 
 import org.firstinspires.ftc.teamcode.Subsystems.RampaSubsystem;
@@ -7,67 +6,46 @@ public class RampaCommand {
 
     private final RampaSubsystem rampa;
 
-    // ==========================================
-    // CONSTRUCTOR
-    // ==========================================
+    public enum EstadoRampa {
+        ARRIBA,
+        OBJETIVO,
+        STOP
+    }
+
+    private EstadoRampa estadoActual = EstadoRampa.STOP;
 
     public RampaCommand(RampaSubsystem rampa) {
         this.rampa = rampa;
     }
 
-    // ==========================================
-    // SUBIR
-    // ==========================================
-
     public void subir() {
-        rampa.subir();
+        estadoActual = EstadoRampa.ARRIBA;
+        rampa.setTargetTicks(RampaSubsystem.POSICION_ARRIBA);
     }
-
-    // ==========================================
-    // BAJAR
-    // ==========================================
 
     public void bajar() {
-        rampa.bajar();
+        estadoActual = EstadoRampa.OBJETIVO;
+        rampa.setTargetTicks(RampaSubsystem.POSICION_OBJETIVO);
     }
-
-    // ==========================================
-    // UPDATE
-    // ==========================================
-
-    public void execute() {
-        rampa.update();
-    }
-
-    // ==========================================
-    // ESTADO
-    // ==========================================
-
-    public boolean isReady() {
-        return rampa.isReady();
-    }
-
-    public boolean hasFault() {
-        return rampa.hasFault();
-    }
-
-    public String getStatus() {
-        return rampa.getStatus();
-    }
-
-    // ==========================================
-    // RESET
-    // ==========================================
-
-    public void clearFault() {
-        rampa.clearFault();
-    }
-
-    // ==========================================
-    // STOP
-    // ==========================================
 
     public void stop() {
+        estadoActual = EstadoRampa.STOP;
         rampa.stop();
+    }
+
+    /** Se ejecuta continuamente en el loop del OpMode o Autónomo */
+    public void execute() {
+        if (rampa.hasFault()) {
+            rampa.stop();
+            return;
+        }
+
+        if (estadoActual == EstadoRampa.STOP) {
+            rampa.stop();
+            return;
+        }
+
+        // Ejecuta tu lógica de control proporcional probada
+        rampa.aplicarControl();
     }
 }
