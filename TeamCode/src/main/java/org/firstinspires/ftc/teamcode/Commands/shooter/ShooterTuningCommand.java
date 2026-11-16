@@ -5,7 +5,7 @@ import org.firstinspires.ftc.teamcode.Subsystems.ShooterSubsystem;
 
 public class ShooterTuningCommand {
 
-    public static double TPS_STEP = 20.0;
+    public static double TPS_STEP = 5.0;
     public static double TRIGGER_DEADBAND = 0.15;
 
     public static double P_STEP = 0.000010;
