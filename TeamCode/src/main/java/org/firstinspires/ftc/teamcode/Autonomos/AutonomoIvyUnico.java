@@ -1,8 +1,5 @@
 package org.firstinspires.ftc.teamcode.Autonomos;
-
-import static com.pedropathing.api.Paths.*;
 import com.pedropathing.api.Paths;
-
 import com.pedropathing.api.PoseFactory;
 import com.pedropathing.follower.Follower;
 import com.pedropathing.math.Pose;

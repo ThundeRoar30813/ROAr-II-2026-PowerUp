@@ -1,5 +1,9 @@
 package org.firstinspires.ftc.teamcode.OpModes.Pruebas.torreta;
 
+import com.acmerobotics.dashboard.FtcDashboard;
+import com.acmerobotics.dashboard.canvas.Canvas;
+import com.acmerobotics.dashboard.telemetry.TelemetryPacket;
+
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 
@@ -30,6 +34,8 @@ public class BioBuzzInterpolationTeleOp extends OpMode {
     public static double FIELD_MID_Y = 72.0;
     public static double ZONE_HYSTERESIS = 1.5;
 
+    private static final double FIELD_HALF = 72.0;
+
     public static int INITIAL_TAG = 37;
     public static int OPPOSITE_TAG = 30;
 
@@ -41,7 +47,7 @@ public class BioBuzzInterpolationTeleOp extends OpMode {
     // Provisional hasta calibrar el otro lado.
     public static boolean MIRROR_UPPER_TABLE = true;
 
-    public static double MAX_TABLE_DISTANCE_IN = 24.0;
+    public static double MAX_TABLE_DISTANCE_IN = 36.0;
 
     // ==========================================
     // SUBSYSTEMS
@@ -59,6 +65,8 @@ public class BioBuzzInterpolationTeleOp extends OpMode {
 
     private ShooterSubsystem shooter;
     private HoodSubsystem hood;
+
+    private FtcDashboard dashboard;
 
     // ==========================================
     // ESTADOS
@@ -141,10 +149,11 @@ public class BioBuzzInterpolationTeleOp extends OpMode {
         hoodLevel = 3;
         hood.setIndex(hoodLevel - 1);
 
+        dashboard = FtcDashboard.getInstance();
+
         telemetry.addLine("BIOBUZZ V6 LISTO");
-        telemetry.addLine("INICIO: TAG 37");
-        telemetry.addLine("OTRO LADO: TAG 30");
-        telemetry.addLine("TRACKING ORIGINAL COMBINED");
+        telemetry.addLine("INICIO: TAG 37 | OTRO LADO: TAG 30");
+        telemetry.addLine("G2 B: Auto-Aim | G2 RT: Disparar");
         telemetry.update();
     }
 
@@ -431,7 +440,7 @@ public class BioBuzzInterpolationTeleOp extends OpMode {
         shooter.update();
 
         // ======================================
-        // TELEMETRIA
+        // TELEMETRIA DRIVER STATION
         // ======================================
 
         telemetry.addLine(
@@ -667,6 +676,165 @@ public class BioBuzzInterpolationTeleOp extends OpMode {
         );
 
         telemetry.update();
+
+        // ======================================
+        // FTC DASHBOARD
+        // ======================================
+
+        sendDashboardPacket(shooting);
+    }
+
+    // ==========================================
+    // TELEMETRIA VISUAL FTC DASHBOARD
+    // ==========================================
+
+    private void sendDashboardPacket(boolean shooting) {
+
+        TelemetryPacket packet = new TelemetryPacket(false);
+        drawBioBuzzField(packet);
+
+        double x = drive.getX();
+        double y = drive.getY();
+        double heading = drive.getHeadingDegrees();
+
+        packet.put("Pedro X", x);
+        packet.put("Pedro Y", y);
+        packet.put("Heading", heading);
+        packet.put("Tag Activo", selectedTag);
+        packet.put("Tabla Valida", validTable);
+        packet.put("Shooter Mode", shooting ? "SHOOTING" : "IDLE");
+        packet.put("TPS Target", shooter.getTargetTPS());
+        packet.put("TPS Real", shooter.getActualTPS());
+        packet.put("Offset Global", globalTPSOffset);
+        packet.put("Hood Level", hoodLevel);
+        packet.put("Turret Error", turret.getError());
+        packet.put("Limelight Tx", vision.getTx());
+
+        if (interpolation != null) {
+            packet.put("Distancia Vecino (in)", interpolation.nearestDistance);
+        }
+
+        double dashX = x - FIELD_HALF;
+        double dashY = y - FIELD_HALF;
+
+        // Objetivo activo segun la zona (Tag 37 abajo vs Tag 30 arriba)
+        double activeGoalX = oppositeSide
+                ? TurretAimControllerV77.TAG30_X
+                : TurretAimControllerV77.TAG37_X;
+        double activeGoalY = oppositeSide
+                ? TurretAimControllerV77.TAG30_Y
+                : TurretAimControllerV77.TAG37_Y;
+
+        double goalDashX = activeGoalX - FIELD_HALF;
+        double goalDashY = activeGoalY - FIELD_HALF;
+        double headingRad = Math.toRadians(heading);
+
+        boolean readyToFire = tracking
+                && turret.isReadyToShoot(2.5)
+                && validTable;
+
+        Canvas c = packet.fieldOverlay();
+
+        // Linea de tiro al Tag activo (Verde si esta listo, Amarilla si no)
+        c.setStroke(readyToFire ? "#22C55E" : "#EAB308")
+                .setStrokeWidth(2)
+                .strokeLine(dashX, dashY, goalDashX, goalDashY);
+
+        // Circulo del Tag objetivo activo
+        c.setFill("#16A34A")
+                .fillCircle(goalDashX, goalDashY, 4);
+
+        // Chasis Robot
+        c.setStroke("#2563EB")
+                .setStrokeWidth(3)
+                .strokeCircle(dashX, dashY, 9);
+
+        // Frente del Robot (Heading)
+        c.setStroke("#2563EB")
+                .setStrokeWidth(3)
+                .strokeLine(
+                        dashX,
+                        dashY,
+                        dashX + 14 * Math.cos(headingRad),
+                        dashY + 14 * Math.sin(headingRad)
+                );
+
+        dashboard.sendTelemetryPacket(packet);
+    }
+
+    // ==========================================
+    // DIBUJO DEL CAMPO BIOBUZZ
+    // ==========================================
+
+    private void drawBioBuzzField(TelemetryPacket packet) {
+
+        Canvas c = packet.fieldOverlay();
+
+        c.setFill("#292929").fillRect(-72, -72, 144, 144);
+        c.setStroke("#555555").setStrokeWidth(1);
+
+        for (int i = -72; i <= 72; i += 24) {
+            c.strokeLine(i, -72, i, 72);
+            c.strokeLine(-72, i, 72, i);
+        }
+
+        c.setStroke("#B0B0B0").setStrokeWidth(1).strokeRect(-72, -72, 144, 144);
+
+        // Estaciones
+        c.setStroke("#EF3340").setStrokeWidth(2).strokeRect(-72, 24, 10, 24);
+        c.setStroke("#315BEA").setStrokeWidth(2).strokeRect(62, -48, 10, 24);
+
+        // Estructura central y puente
+        c.setFill("#474747").fillRect(-25, -22, 50, 44);
+        c.setStroke("#171717").setStrokeWidth(2).strokeRect(-25, -22, 50, 44);
+        c.setFill("#F5C76E").fillRect(-12, -4, 24, 8);
+
+        // Rampas Rojas
+        c.setStroke("#F02C3B").setStrokeWidth(2);
+        c.strokeRect(-24, 8, 20, 10);
+        c.strokeLine(-24, 18, -14, 23);
+        c.strokeLine(-14, 23, -4, 18);
+        c.strokeRect(-24, -18, 20, 10);
+        c.strokeLine(-24, -8, -14, -3);
+        c.strokeLine(-14, -3, -4, -8);
+
+        // Rampas Azules
+        c.setStroke("#3457E5").setStrokeWidth(2);
+        c.strokeRect(4, 8, 20, 10);
+        c.strokeLine(4, 8, 14, 3);
+        c.strokeLine(14, 3, 24, 8);
+        c.strokeRect(4, -18, 20, 10);
+        c.strokeLine(4, -18, 14, -23);
+        c.strokeLine(14, -23, 24, -18);
+
+        // Marcadores visuales
+        c.setFill("#F6BC4B");
+        c.fillCircle(-72, -24, 2.3);
+        c.fillCircle(72, 24, 2.3);
+        c.fillCircle(-24, 72, 2.3);
+        c.fillCircle(24, -72, 2.3);
+
+        // Malla de los 18 puntos calibrados en ShooterInterpolation
+        double[][] calibratedPoints = {
+                {11, 0},  {21, 2},  {36, 6},  {55, 10}, {48, 21}, {48, 24},
+                {6, 33},  {8, 18},  {21, 17}, {54, 4},  {60, 15}, {60, 25},
+                {60, 28}, {24, 24}, {36, 24}, {12, 36}, {24, 36}, {36, 36}
+        };
+
+        // Puntos reales (Lado inicial - Verde brillante)
+        c.setFill("#4ADE80");
+        for (double[] pt : calibratedPoints) {
+            c.fillCircle(pt[0] - FIELD_HALF, pt[1] - FIELD_HALF, 1.5);
+        }
+
+        // Puntos espejo (Lado contrario - Verde tenue si MIRROR_UPPER_TABLE esta activo)
+        if (MIRROR_UPPER_TABLE) {
+            c.setFill("#15803D");
+            for (double[] pt : calibratedPoints) {
+                double mirrorY = FIELD_SIZE - pt[1];
+                c.fillCircle(pt[0] - FIELD_HALF, mirrorY - FIELD_HALF, 1.3);
+            }
+        }
     }
 
     // ==========================================

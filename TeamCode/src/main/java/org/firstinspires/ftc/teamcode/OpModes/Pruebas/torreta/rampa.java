@@ -22,13 +22,13 @@ public class rampa extends OpMode {
 
     // POSICIONES OBJETIVO CALIBRADAS
     private static final int TICKS_ARRIBA = 0;
-    private static final int TICKS_OBJETIVO = 6484; // Tu medida exacta (135.57 deg)
+    private static final int TICKS_OBJETIVO = 5884; // Tu medida exacta (135.57 deg)
 
     // PARAMETROS DEL CONTROL AUTOMATICO (Proporcional)
     private static final double KP = 0.0008;        // Suaviza la llegada para no pasarse
     private static final int TOLERANCIA_TICKS = 35; // Margen de error permitido (~0.7 grados)
-    private static final double MIN_POWER = 0.15;   // Potencia minima para vencer friccion
-    private static final double MAX_POWER = 0.75;   // Velocidad maxima del servo continuo
+    private static final double MIN_POWER = 0.20;   // Potencia minima para vencer friccion
+    private static final double MAX_POWER = 0.80;   // Velocidad maxima del servo continuo
 
     private int targetTicks = TICKS_ARRIBA;
     private boolean modoAutomatico = false;

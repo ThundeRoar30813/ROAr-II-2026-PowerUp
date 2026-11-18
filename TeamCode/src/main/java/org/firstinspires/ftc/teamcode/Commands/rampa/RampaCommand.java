@@ -1,4 +1,3 @@
-
 package org.firstinspires.ftc.teamcode.Commands.rampa;
 
 import org.firstinspires.ftc.teamcode.Subsystems.RampaSubsystem;
@@ -7,67 +6,41 @@ public class RampaCommand {
 
     private final RampaSubsystem rampa;
 
-    // ==========================================
-    // CONSTRUCTOR
-    // ==========================================
+    private boolean lastBtnA = false;
+    private boolean lastBtnB = false;
+    private boolean lastBtnY = false;
 
     public RampaCommand(RampaSubsystem rampa) {
         this.rampa = rampa;
     }
 
-    // ==========================================
-    // SUBIR
-    // ==========================================
+    public void subir() { rampa.irArriba(); }
+    public void bajar() { rampa.irAbajo(); }
+    public void execute() { rampa.update(); }
+    public void stop() { rampa.stop(); }
 
-    public void subir() {
-        rampa.subir();
-    }
+    public void executeTeleOp(
+            boolean btnArriba,
+            boolean btnBajar,
+            boolean btnZero,
+            boolean manualBajar,
+            boolean manualSubir) {
 
-    // ==========================================
-    // BAJAR
-    // ==========================================
+        if (btnArriba && !lastBtnA) rampa.irArriba();
+        lastBtnA = btnArriba;
 
-    public void bajar() {
-        rampa.bajar();
-    }
+        if (btnBajar && !lastBtnB) rampa.irAbajo();
+        lastBtnB = btnBajar;
 
-    // ==========================================
-    // UPDATE
-    // ==========================================
+        if (btnZero && !lastBtnY) rampa.zeroHere();
+        lastBtnY = btnZero;
 
-    public void execute() {
+        if (manualBajar) {
+            rampa.setManualPower(0.35);
+        } else if (manualSubir) {
+            rampa.setManualPower(-0.35);
+        }
+
         rampa.update();
-    }
-
-    // ==========================================
-    // ESTADO
-    // ==========================================
-
-    public boolean isReady() {
-        return rampa.isReady();
-    }
-
-    public boolean hasFault() {
-        return rampa.hasFault();
-    }
-
-    public String getStatus() {
-        return rampa.getStatus();
-    }
-
-    // ==========================================
-    // RESET
-    // ==========================================
-
-    public void clearFault() {
-        rampa.clearFault();
-    }
-
-    // ==========================================
-    // STOP
-    // ==========================================
-
-    public void stop() {
-        rampa.stop();
     }
 }
